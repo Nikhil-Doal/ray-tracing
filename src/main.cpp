@@ -8,10 +8,21 @@ Vec3 ray_color(const Ray &r);
 
 int main() {
   int width = 400;
-  int height = 400;
+  int height = 200;
   std::cout << "P3\n" << width << " " << height << "\n255\n";
   
   Vec3 origin(0,0,0);
+  double aspect_ratio = double(width)/height;
+
+  double viewport_height = 2.0; // 2n - 1 mapping 0,1 to -1,1
+  double viewport_width = aspect_ratio * viewport_height;
+  double focal_length = 1.0; // the -1 
+
+  Vec3 horizontal(viewport_width, 0, 0);
+  Vec3 vertical(0, viewport_height, 0);
+
+  Vec3 lower_left_corner = origin - horizontal/2 - vertical/2 - Vec3(0, 0, focal_length);
+
   for (int j = height - 1; j >= 0; --j) {
     for (int i = 0; i < width; ++i) {
       // float r = float(i) / width;
@@ -24,18 +35,13 @@ int main() {
       double u = double(i) / (width - 1);
       double v = double(j) / (height - 1);
       
-      Vec3 direction(2*u - 1, 1 - 2*v, -1);
+      Vec3 direction = lower_left_corner + horizontal*u + vertical*v - origin;
       Ray ray(origin, direction);
       Vec3 color = ray_color(ray);
       
-
-      float r = color.x;
-      float g = color.y;
-      float b = color.z;
-      
-      int ir = int(255.99 * r);
-      int ig = int(255.99 * g);
-      int ib = int(255.99 * b);
+      int ir = int(255.99 * color.x);
+      int ig = int(255.99 * color.y);
+      int ib = int(255.99 * color.z);
 
       std::cout << ir << " " << ig << " " << ib << "\n";
     }
