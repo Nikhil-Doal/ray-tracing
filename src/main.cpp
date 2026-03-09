@@ -5,14 +5,20 @@
 #include "../core/hittable.h"
 #include "../objects/sphere.h"
 #include "../objects/hittable_list.h"
+#include "../materials/material.h"
+#include "../materials/lambertian.h"
 
-Vec3 ray_color(const Ray &r, const Hittable &world);
+
+Vec3 ray_color(const Ray &r, const Hittable &world, int depth);
 
 int main() {
   // Making the scene
   HittableList world;
-  Sphere sphere1(Vec3(0,0,-1), 0.5);
-  Sphere ground(Vec3(0,-100.5,-1), 100); // we can make the ground using another sphere for now
+  // Materials
+  Lambertian ground_mat(Vec3(0.8, 0.8, 0.0));
+  Lambertian sphere1_mat(Vec3(0.7, 0.3, 0.3));
+  Sphere sphere1(Vec3(0,0,-1), 0.5, &sphere1_mat);
+  Sphere ground(Vec3(0,-100.5,-1), 100, &ground_mat); // we can make the ground using another sphere for now
   world.add(&sphere1);
   world.add(&ground);
 
@@ -39,7 +45,7 @@ int main() {
       
       Vec3 direction = lower_left_corner + horizontal*u + vertical*v - origin;
       Ray ray(origin, direction);
-      Vec3 color = ray_color(ray, world);
+      Vec3 color = ray_color(ray, world, 50);
       
       int ir = int(255.99 * color.x);
       int ig = int(255.99 * color.y);
@@ -51,12 +57,22 @@ int main() {
 }
 
 
-Vec3 ray_color(const Ray &r, const Hittable &world) {
+Vec3 ray_color(const Ray &r, const Hittable &world, int depth) {
+  if (depth <= 0) return Vec3(0,0,0);
   HitRecord rec;
+
   if (world.hit(r, 0.001, 1000, rec)) {
-    Vec3 normal = rec.normal;
-    return Vec3(normal.x + 1, normal.y + 1, normal.z + 1) * 0.5;
+    Ray scattered;
+    Vec3 attenuation;
+
+    if (rec.mat->scatter(r, rec, attenuation, scattered)) {
+      return attenuation * (scattered, world, depth-1);
+    }
+
+    return Vec3(0,0,0);
   }
+
+
   Vec3 unit = r.direction.normalize();
   double t = 0.5*(unit.y + 1.0);
 
