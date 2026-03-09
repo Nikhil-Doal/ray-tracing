@@ -1,5 +1,7 @@
 #include <iostream>
 #include <cmath>
+#include <cstdlib>
+#include <ctime>
 #include "../core/vec3.h"
 #include "../core/ray.h"
 #include "../core/hittable.h"
@@ -7,19 +9,27 @@
 #include "../objects/hittable_list.h"
 #include "../materials/material.h"
 #include "../materials/lambertian.h"
-
+#include "../materials/metal.h"
 
 Vec3 ray_color(const Ray &r, const Hittable &world, int depth);
 
 int main() {
+  const int samples_per_pixel = 100;
+  const int max_depth = 50;
+  srand(time(0));
+
   // Making the scene
   HittableList world;
+
   // Materials
   Lambertian ground_mat(Vec3(0.8, 0.8, 0.0));
   Lambertian sphere1_mat(Vec3(0.7, 0.3, 0.3));
+  Metal metal_mat(Vec3(0.8,0.8,0.8), 0.8); 
   Sphere sphere1(Vec3(0,0,-1), 0.5, &sphere1_mat);
   Sphere ground(Vec3(0,-100.5,-1), 100, &ground_mat); // we can make the ground using another sphere for now
+  Sphere metal_sphere(Vec3(1, 0, -1), 0.5, &metal_mat);
   world.add(&sphere1);
+  world.add(&metal_sphere);
   world.add(&ground);
 
   int width = 400;
@@ -38,18 +48,39 @@ int main() {
 
   Vec3 lower_left_corner = origin - horizontal/2 - vertical/2 - Vec3(0, 0, focal_length);
 
+  // Rendering pixels
   for (int j = height - 1; j >= 0; --j) {
     for (int i = 0; i < width; ++i) {
-      double u = double(i) / (width - 1);
-      double v = double(j) / (height - 1);
-      
-      Vec3 direction = lower_left_corner + horizontal*u + vertical*v - origin;
-      Ray ray(origin, direction);
-      Vec3 color = ray_color(ray, world, 50);
-      
-      int ir = int(255.99 * color.x);
-      int ig = int(255.99 * color.y);
-      int ib = int(255.99 * color.z);
+      Vec3 pixel_color(0,0,0);
+      for (int s = 0; s < samples_per_pixel; ++s) {
+        // Monte Carlo anti-aliasing
+        double u = (i + (rand() / (RAND_MAX + 1.0))) / (width - 1);
+        double v = (j + (rand() / (RAND_MAX + 1.0))) / (height - 1);
+
+        Vec3 direction = lower_left_corner + horizontal*u + vertical*v - origin;
+        Ray ray(origin, direction.normalize());
+
+        pixel_color = pixel_color + ray_color(ray, world, max_depth);
+      }
+
+      pixel_color = pixel_color / samples_per_pixel;
+
+      // gamma correction
+      pixel_color = Vec3(
+          sqrt(pixel_color.x),
+          sqrt(pixel_color.y),
+          sqrt(pixel_color.z)
+      );
+      // lambda clamping function to clip large values
+      auto clamp = [](double x, double min, double max) {
+        if (x < min) return min;
+        if (x > max) return max;
+        return x;
+      };
+
+      int ir = int(256 * clamp(pixel_color.x, 0.0, 0.999));
+      int ig = int(256 * clamp(pixel_color.y, 0.0, 0.999));
+      int ib = int(256 * clamp(pixel_color.z, 0.0, 0.999));
 
       std::cout << ir << " " << ig << " " << ib << "\n";
     }
@@ -66,7 +97,7 @@ Vec3 ray_color(const Ray &r, const Hittable &world, int depth) {
     Vec3 attenuation;
 
     if (rec.mat->scatter(r, rec, attenuation, scattered)) {
-      return attenuation * (scattered, world, depth-1);
+      return ray_color(scattered, world, depth-1) * attenuation;
     }
 
     return Vec3(0,0,0);

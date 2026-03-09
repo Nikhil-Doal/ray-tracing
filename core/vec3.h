@@ -12,12 +12,15 @@ public:
   Vec3 operator-(const Vec3 &v) const;
   Vec3 operator*(double t) const;
   Vec3 operator/(double t) const;
-  
+  Vec3 operator*(const Vec3 &v) const;
+
   double dot(Vec3 const &v) const;
   Vec3 cross(Vec3 const &v) const;
 
   double norm() const;
   Vec3 normalize() const;
+
+  Vec3 reflect(const Vec3 &v, const Vec3 &n);
 };
 // constructors
 Vec3::Vec3() : x(0), y(0), z(0) {}
@@ -35,6 +38,9 @@ Vec3 Vec3::operator*(double t) const {
 }
 Vec3 Vec3::operator/(double t) const {
   return Vec3(x / t, y / t, z / t);    
+}
+Vec3 Vec3::operator*(const Vec3 &v) const {
+  return Vec3(x * v.x, y * v.y, z * v.z); 
 }
 
 // products
@@ -57,3 +63,7 @@ Vec3 Vec3::normalize() const {
   return *this/norm();
 }
 
+// helpers
+Vec3 reflect(const Vec3 &v, const Vec3 &n) {
+  return v - n * (v.dot(n) * 2);
+}
