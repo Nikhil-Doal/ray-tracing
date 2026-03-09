@@ -1,6 +1,8 @@
 #pragma once
 #include "material.h"
 
+double reflectance(double cosine, double ref_idx);
+
 class Dielectric : public Material {
 public:
   double ir; // the index of refraction
@@ -13,9 +15,18 @@ bool Dielectric::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuat
   attenuation = Vec3(1.0, 1.0, 1.0);
   double refract_ratio = rec.front_face ? (1.0/ir) : ir;
   Vec3 unit_dir = ray_in.direction.normalize();
-  Vec3 direction = refract(unit_dir, rec.normal, refract_ratio);
-  scattered = Ray(rec.point, direction);
 
+  double cos_theta = fmin(rec.normal.dot(unit_dir * -1), 1);
+  double sin_theta = sqrt(1 - cos_theta*cos_theta);
+
+  bool cannot_refract = refract_ratio * sin_theta > 1.0;
+
+  Vec3 direction;
+
+  if (cannot_refract || reflectance(cos_theta, refract_ratio) > (rand() / (RAND_MAX + 1.0))) direction = reflect(unit_dir, rec.normal);
+  else direction = refract(unit_dir, rec.normal, refract_ratio);
+  
+  scattered = Ray(rec.point, direction);
   return true;
 }
 

@@ -24,7 +24,7 @@ public:
   bool scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const override;
 };
 bool Lambertian::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const{
-  Vec3 scatter_direction = rec.normal + random_in_unit_sphere();
+  Vec3 scatter_direction = rec.normal + random_unit_vector();
 
   scattered = Ray(rec.point, scatter_direction);
   attenuation = albedo;

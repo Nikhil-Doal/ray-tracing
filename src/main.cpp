@@ -33,18 +33,20 @@ int main() {
   Sphere ground(Vec3(0,-100.5,-1), 100, &ground_mat); // we can make the ground using another sphere for now
   Sphere metal_sphere(Vec3(1, 0, -1), 0.5, &metal_mat);
   Sphere glass_sphere(Vec3(-1,0, -1), 0.5, &glass);
+  Sphere glass_sphere_hollow(Vec3(-1, 0, -1), -0.4, &glass);
 
   // Adding Spheres
   world.add(&sphere1);
   world.add(&metal_sphere);
   world.add(&ground);
   world.add(&glass_sphere);
+  world.add(&glass_sphere_hollow);
 
   int width = 400;
   int height = 200;
   std::cout << "P3\n" << width << " " << height << "\n255\n";
   
-  Vec3 origin(0,0,0);
+  Vec3 origin(0,0,1);
   double aspect_ratio = double(width)/height;
 
   double viewport_height = 2.0; // 2n - 1 mapping 0,1 to -1,1
