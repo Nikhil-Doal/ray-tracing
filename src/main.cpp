@@ -12,61 +12,46 @@
 #include "../materials/metal.h"
 #include "../materials/dielectric.h"
 #include "../core/camera.h"
+#include "../utils/random_scene.h"
 
 Vec3 ray_color(const Ray &r, const Hittable &world, int depth);
 
 int main() {
-  const int samples_per_pixel = 100;
-  const int max_depth = 50;
+  int width = 400;
+  int height = 200;
+  const int samples_per_pixel = 500;
+  const int max_depth = 100;
   srand(time(0));
 
   // Making the scene
-  HittableList world;
+  HittableList world = random_scene();
 
-  // Materials
-  Lambertian ground_mat(Vec3(0.8, 0.8, 0.0));
-  Lambertian sphere1_mat(Vec3(0.7, 0.3, 0.3));
-  Metal metal_mat(Vec3(0.8,0.8,0.8), 0.8);
-  Dielectric glass(1.5); 
+  // // Materials
+  // Lambertian ground_mat(Vec3(0.8, 0.8, 0.0));
+  // Lambertian sphere1_mat(Vec3(0.7, 0.3, 0.3));
+  // Metal metal_mat(Vec3(0.8,0.8,0.8), 0.8);
+  // Dielectric glass(1.5); 
 
-  // Spheres
-  Sphere sphere1(Vec3(0,0,-1), 0.5, &sphere1_mat);
-  Sphere ground(Vec3(0,-100.5,-1), 100, &ground_mat); // we can make the ground using another sphere for now
-  Sphere metal_sphere(Vec3(1, 0, -1), 0.5, &metal_mat);
-  Sphere glass_sphere(Vec3(-1,0, -1), 0.5, &glass);
-  Sphere glass_sphere_hollow(Vec3(-1, 0, -1), -0.4, &glass);
+  // // Spheres
+  // Sphere sphere1(Vec3(0,0,-1), 0.5, &sphere1_mat);
+  // Sphere ground(Vec3(0,-100.5,-1), 100, &ground_mat); // we can make the ground using another sphere for now
+  // Sphere metal_sphere(Vec3(1, 0, -1), 0.5, &metal_mat);
+  // Sphere glass_sphere(Vec3(-1,0, -1), 0.5, &glass);
+  // Sphere glass_sphere_hollow(Vec3(-1, 0, -1), -0.4, &glass);
 
-  // Adding Spheres
-  world.add(&sphere1);
-  world.add(&metal_sphere);
-  world.add(&ground);
-  world.add(&glass_sphere);
-  world.add(&glass_sphere_hollow);
+  // // Adding Spheres
+  // world.add(&sphere1);
+  // world.add(&metal_sphere);
+  // world.add(&ground);
+  // world.add(&glass_sphere);
+  // world.add(&glass_sphere_hollow);
 
-  int width = 400;
-  int height = 200;
   std::cout << "P3\n" << width << " " << height << "\n255\n";
   
-  // // camera settings
-  // Vec3 origin(0,0,0);
+  // Camera setup
   double aspect_ratio = double(width)/height;
-
-  // double viewport_height = 2.0; // 2n - 1 mapping 0,1 to -1,1
-  // double viewport_width = aspect_ratio * viewport_height;
-  // double focal_length = 1.0; // the -1 
-
-  // Vec3 horizontal(viewport_width, 0, 0);
-  // Vec3 vertical(0, viewport_height, 0);
-
-  // double aperture = 0.2;
-  // double focus_dist = 1.0;
-
-  // double lens_radius = aperture / 2;
-
-  // Vec3 lower_left_corner = origin - horizontal/2 - vertical/2 - Vec3(0, 0, focal_length);
-
-  Vec3 lookfrom(1, 1, 1);
-  Vec3 lookat(0, 0, -1);
+  Vec3 lookfrom(4, 2, 3);
+  Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
   double aperture = 0.0;

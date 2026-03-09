@@ -1,6 +1,7 @@
 // define a 3d vector class
 #pragma once
 #include <cmath>
+#include "../utils/math_utils.h"
 
 class Vec3 {
 public:
@@ -19,6 +20,9 @@ public:
 
   double norm() const;
   Vec3 normalize() const;
+  
+  static Vec3 random();
+  static Vec3 random(double lower, double upper);
 };
 // constructors
 Vec3::Vec3() : x(0), y(0), z(0) {}
@@ -79,4 +83,11 @@ Vec3 random_in_unit_disk() {
     if (p.dot(p) >= 1) continue;
     return p;
   } 
+}
+
+Vec3 Vec3::random() {
+  return Vec3(random_double(), random_double(), random_double());
+}
+Vec3 Vec3::random(double lower, double upper) {
+  return Vec3(random_double(lower, upper), random_double(lower, upper), random_double(lower, upper));
 }

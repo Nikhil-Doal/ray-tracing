@@ -8,3 +8,11 @@ double degrees_to_radians(double degrees) {
 double radians_to_degrees(double radians) {
     return radians * 180.0 / PI;
 }
+
+double random_double(){
+  return rand() / (RAND_MAX + 1.0);
+}
+
+double random_double(double lower, double upper) {
+  return lower + (upper - lower) * (rand() / (RAND_MAX + 1.0));
+}
