@@ -11,6 +11,7 @@
 #include "../materials/lambertian.h"
 #include "../materials/metal.h"
 #include "../materials/dielectric.h"
+#include "../core/camera.h"
 
 Vec3 ray_color(const Ray &r, const Hittable &world, int depth);
 
@@ -46,23 +47,32 @@ int main() {
   int height = 200;
   std::cout << "P3\n" << width << " " << height << "\n255\n";
   
-  Vec3 origin(0,0,0);
+  // // camera settings
+  // Vec3 origin(0,0,0);
   double aspect_ratio = double(width)/height;
 
-  double viewport_height = 2.0; // 2n - 1 mapping 0,1 to -1,1
-  double viewport_width = aspect_ratio * viewport_height;
-  double focal_length = 1.0; // the -1 
+  // double viewport_height = 2.0; // 2n - 1 mapping 0,1 to -1,1
+  // double viewport_width = aspect_ratio * viewport_height;
+  // double focal_length = 1.0; // the -1 
 
-  Vec3 horizontal(viewport_width, 0, 0);
-  Vec3 vertical(0, viewport_height, 0);
+  // Vec3 horizontal(viewport_width, 0, 0);
+  // Vec3 vertical(0, viewport_height, 0);
 
-  // camera settings
-  double aperture = 0.2;
-  double focus_dist = 1.0;
+  // double aperture = 0.2;
+  // double focus_dist = 1.0;
 
-  double lens_radius = aperture / 2;
+  // double lens_radius = aperture / 2;
 
-  Vec3 lower_left_corner = origin - horizontal/2 - vertical/2 - Vec3(0, 0, focal_length);
+  // Vec3 lower_left_corner = origin - horizontal/2 - vertical/2 - Vec3(0, 0, focal_length);
+
+  Vec3 lookfrom(1, 1, 1);
+  Vec3 lookat(0, 0, -1);
+  Vec3 vup(0, 1, 0);
+  double focus_dist = (lookfrom - lookat).norm();
+  double aperture = 0.0;
+
+  Camera camera(lookfrom, lookat, vup, 90, aspect_ratio, aperture, focus_dist);
+
 
   // Rendering pixels
   for (int j = height - 1; j >= 0; --j) {
@@ -73,12 +83,13 @@ int main() {
         double u = (i + (rand() / (RAND_MAX + 1.0))) / (width - 1);
         double v = (j + (rand() / (RAND_MAX + 1.0))) / (height - 1);
 
-        Vec3 direction = lower_left_corner + horizontal*u + vertical*v - origin;
-        // Ray ray(origin, direction.normalize());
+        // Vec3 direction = lower_left_corner + horizontal*u + vertical*v - origin;
+        // // Ray ray(origin, direction.normalize());
 
-        Vec3 rd = random_in_unit_disk() * lens_radius;
-        Vec3 offset(rd.x, rd.y, 0);
-        Ray ray(origin + offset, direction - offset);
+        // Vec3 rd = random_in_unit_disk() * lens_radius;
+        // Vec3 offset(rd.x, rd.y, 0);
+        // Ray ray(origin + offset, direction - offset);
+        Ray ray = camera.get_ray(u,v);
 
         pixel_color = pixel_color + ray_color(ray, world, max_depth);
       }
