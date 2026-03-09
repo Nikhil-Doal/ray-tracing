@@ -10,6 +10,7 @@
 #include "../materials/material.h"
 #include "../materials/lambertian.h"
 #include "../materials/metal.h"
+#include "../materials/dielectric.h"
 
 Vec3 ray_color(const Ray &r, const Hittable &world, int depth);
 
@@ -24,13 +25,20 @@ int main() {
   // Materials
   Lambertian ground_mat(Vec3(0.8, 0.8, 0.0));
   Lambertian sphere1_mat(Vec3(0.7, 0.3, 0.3));
-  Metal metal_mat(Vec3(0.8,0.8,0.8), 0.8); 
+  Metal metal_mat(Vec3(0.8,0.8,0.8), 0.8);
+  Dielectric glass(1.5); 
+
+  // Spheres
   Sphere sphere1(Vec3(0,0,-1), 0.5, &sphere1_mat);
   Sphere ground(Vec3(0,-100.5,-1), 100, &ground_mat); // we can make the ground using another sphere for now
   Sphere metal_sphere(Vec3(1, 0, -1), 0.5, &metal_mat);
+  Sphere glass_sphere(Vec3(-1,0, -1), 0.5, &glass);
+
+  // Adding Spheres
   world.add(&sphere1);
   world.add(&metal_sphere);
   world.add(&ground);
+  world.add(&glass_sphere);
 
   int width = 400;
   int height = 200;

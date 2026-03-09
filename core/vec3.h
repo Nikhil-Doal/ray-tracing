@@ -19,8 +19,6 @@ public:
 
   double norm() const;
   Vec3 normalize() const;
-
-  Vec3 reflect(const Vec3 &v, const Vec3 &n);
 };
 // constructors
 Vec3::Vec3() : x(0), y(0), z(0) {}
@@ -63,7 +61,14 @@ Vec3 Vec3::normalize() const {
   return *this/norm();
 }
 
-// helpers
+// helper functions
 Vec3 reflect(const Vec3 &v, const Vec3 &n) {
   return v - n * (v.dot(n) * 2);
+}
+
+Vec3 refract(const Vec3 &uv, const Vec3 &n, double etai_over_etat) {
+  double cos_theta = fmin(n.dot(uv * -1), 1.0);
+  Vec3 r_out_perp = (uv + n * cos_theta) * etai_over_etat;
+  Vec3 r_out_parallel = n * -sqrt(fabs(1.0 - r_out_perp.dot(r_out_perp)));
+  return r_out_parallel + r_out_perp;
 }
