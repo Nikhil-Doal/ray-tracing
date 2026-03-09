@@ -68,7 +68,11 @@ Vec3 ray_color(const Ray &r) {
   Vec3 center(0, 0, -1);
   double t = hit_sphere(center, 0.5, r);
   if (t > 0.0) {
-    return Vec3(1,0,0); // red
+    // based on normalization return the color for shading
+    Vec3 hit_pt = r.at(t);
+    Vec3 normal = (hit_pt - center).normalize();
+  
+    return Vec3(normal.x + 1, normal.y + 1, normal.z + 1) * 0.5;
   }
   return Vec3(0.5, 0.7, 1); // some background color
 }
