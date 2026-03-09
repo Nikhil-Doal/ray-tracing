@@ -1,7 +1,6 @@
 // define a 3d vector class
 #pragma once
 #include <cmath>
-#include "../materials/lambertian.h"
 
 class Vec3 {
 public:
@@ -74,6 +73,10 @@ Vec3 refract(const Vec3 &uv, const Vec3 &n, double etai_over_etat) {
   return r_out_parallel + r_out_perp;
 }
 
-Vec3 random_unit_vector() {
-  return random_in_unit_sphere().normalize();
+Vec3 random_in_unit_disk() {
+  while (true) {
+    Vec3 p((rand() / (RAND_MAX + 1.0)) * 2 - 1, (rand() / (RAND_MAX + 1.0)) * 2 - 1, 0);
+    if (p.dot(p) >= 1) continue;
+    return p;
+  } 
 }

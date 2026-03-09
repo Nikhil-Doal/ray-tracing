@@ -46,7 +46,7 @@ int main() {
   int height = 200;
   std::cout << "P3\n" << width << " " << height << "\n255\n";
   
-  Vec3 origin(0,0,1);
+  Vec3 origin(0,0,0);
   double aspect_ratio = double(width)/height;
 
   double viewport_height = 2.0; // 2n - 1 mapping 0,1 to -1,1
@@ -55,6 +55,12 @@ int main() {
 
   Vec3 horizontal(viewport_width, 0, 0);
   Vec3 vertical(0, viewport_height, 0);
+
+  // camera settings
+  double aperture = 0.2;
+  double focus_dist = 1.0;
+
+  double lens_radius = aperture / 2;
 
   Vec3 lower_left_corner = origin - horizontal/2 - vertical/2 - Vec3(0, 0, focal_length);
 
@@ -68,7 +74,11 @@ int main() {
         double v = (j + (rand() / (RAND_MAX + 1.0))) / (height - 1);
 
         Vec3 direction = lower_left_corner + horizontal*u + vertical*v - origin;
-        Ray ray(origin, direction.normalize());
+        // Ray ray(origin, direction.normalize());
+
+        Vec3 rd = random_in_unit_disk() * lens_radius;
+        Vec3 offset(rd.x, rd.y, 0);
+        Ray ray(origin + offset, direction - offset);
 
         pixel_color = pixel_color + ray_color(ray, world, max_depth);
       }

@@ -1,6 +1,8 @@
 #pragma once
 #include "material.h"
-#include "lambertian.h"
+#include "../core/vec3.h"
+#include "../core/ray.h"
+#include "../core/hittable.h"
 
 class Metal : public Material {
 public:
@@ -8,7 +10,7 @@ public:
   double fuzz;
   Metal(const Vec3 &a, double f) : albedo(a), fuzz(f < 1 ? f : 1) {}
 
-  virtual bool scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const override;  
+  virtual bool scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const override;
 };
 
 bool Metal::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const {

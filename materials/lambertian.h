@@ -17,6 +17,10 @@ Vec3 random_in_unit_sphere() {
   }
 }
 
+Vec3 random_unit_vector() {
+  return random_in_unit_sphere().normalize();
+}
+
 class Lambertian : public Material {
 public:
   Vec3 albedo;
