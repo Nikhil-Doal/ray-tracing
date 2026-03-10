@@ -13,6 +13,7 @@
 #include "../materials/dielectric.h"
 #include "../core/camera.h"
 #include "../utils/random_scene.h"
+#include "../objects/bvh_node.h"
 
 Vec3 ray_color(const Ray &r, const Hittable &world, int depth);
 
@@ -25,6 +26,7 @@ int main() {
 
   // Making the scene
   HittableList world = random_scene();
+  BVHNode world_bvh(world.objects, 0, world.objects.size());
 
   // // Materials
   // Lambertian ground_mat(Vec3(0.8, 0.8, 0.0));
@@ -76,7 +78,7 @@ int main() {
         // Ray ray(origin + offset, direction - offset);
         Ray ray = camera.get_ray(u,v);
 
-        pixel_color = pixel_color + ray_color(ray, world, max_depth);
+        pixel_color = pixel_color + ray_color(ray, world_bvh, max_depth);
       }
 
       pixel_color = pixel_color / samples_per_pixel;

@@ -7,6 +7,7 @@ public:
   std::vector<Hittable*> objects;
   void add(Hittable *obj) {objects.push_back(obj);}
   bool hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) const override;
+  virtual bool bounding_box(AABB &output_box) const override;
 };
 bool HittableList::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) const {
   HitRecord temp_record;
@@ -22,4 +23,17 @@ bool HittableList::hit(const Ray &ray, double t_min, double t_max, HitRecord &re
   }
 
   return hit_anything;
+}
+
+bool HittableList::bounding_box(AABB &output_box) const {
+  if(objects.empty()) return false;
+  AABB tmp_box;
+  bool first_box = true;
+
+  for(const auto &object : objects) {
+    if (!object -> bounding_box(tmp_box)) return false;
+    output_box = first_box ? tmp_box : surrounding_box(output_box, tmp_box);
+    first_box = false;
+  }
+  return true;
 }

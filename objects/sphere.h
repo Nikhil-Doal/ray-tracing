@@ -8,6 +8,7 @@ public:
   double radius;
   Material *mat;
   bool hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) const override;
+  bool bounding_box(AABB &output_box) const override;
   
 };
 Sphere::Sphere(Vec3 c, double r, Material* m) : center(c), radius(r), mat(m) {}
@@ -33,4 +34,9 @@ bool Sphere::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) con
     }
   }
   return false;
+}
+
+bool Sphere::bounding_box(AABB &output_box) const {
+  output_box = AABB(center - Vec3(radius, radius, radius), center + Vec3(radius, radius, radius));
+  return true;
 }

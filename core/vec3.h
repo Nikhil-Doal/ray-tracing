@@ -23,7 +23,15 @@ public:
   
   static Vec3 random();
   static Vec3 random(double lower, double upper);
+
+  double operator[](int i) const;
+  double &operator[](int i);
 };
+
+
+
+
+
 // constructors
 Vec3::Vec3() : x(0), y(0), z(0) {}
 Vec3::Vec3(double x, double y, double z) : x(x), y(y), z(z) {}
@@ -90,4 +98,15 @@ Vec3 Vec3::random() {
 }
 Vec3 Vec3::random(double lower, double upper) {
   return Vec3(random_double(lower, upper), random_double(lower, upper), random_double(lower, upper));
+}
+
+double Vec3::operator[](int i) const {
+  if (i == 0) return x;
+  if (i == 1) return y;
+  return z;
+}
+double& Vec3::operator[](int i) {
+  if (i == 0) return x;
+  if (i == 1) return y;
+  return z;
 }
