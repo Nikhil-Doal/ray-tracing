@@ -1,3 +1,4 @@
+#define TINYOBJLOADER_IMPLEMENTATION
 #include <iostream>
 #include <cmath>
 #include <cstdlib>
@@ -14,18 +15,22 @@
 #include "../core/camera.h"
 #include "../utils/random_scene.h"
 #include "../objects/bvh_node.h"
+#include "../objects/obj_loader.h"
 
 Vec3 ray_color(const Ray &r, const Hittable &world, int depth);
 
 int main() {
   int width = 400;
   int height = 200;
-  const int samples_per_pixel = 500;
-  const int max_depth = 100;
+  const int samples_per_pixel = 100;
+  const int max_depth = 50;
   srand(time(0));
 
   // Making the scene
-  HittableList world = random_scene();
+  HittableList world; // = random_scene();
+  Material *white = new Lambertian(Vec3(0.8,0.8,0.8));
+  Mesh *bunny = load_obj("assets/models/bunny.obj", white, 10, Vec3(0, 0, 0));
+  world.add(bunny);
   BVHNode world_bvh(world.objects, 0, world.objects.size());
 
   // // Materials
@@ -52,7 +57,7 @@ int main() {
   
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(4, 2, 3);
+  Vec3 lookfrom(1, 3, 1);
   Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
