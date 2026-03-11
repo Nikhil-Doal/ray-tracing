@@ -23,7 +23,7 @@ bool Dielectric::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuat
 
   Vec3 direction;
 
-  if (cannot_refract || reflectance(cos_theta, refract_ratio) > (rand() / (RAND_MAX + 1.0))) direction = reflect(unit_dir, rec.normal);
+  if (cannot_refract || reflectance(cos_theta, refract_ratio) > random_double()) direction = reflect(unit_dir, rec.normal);
   else direction = refract(unit_dir, rec.normal, refract_ratio);
   
   scattered = Ray(rec.point, direction);

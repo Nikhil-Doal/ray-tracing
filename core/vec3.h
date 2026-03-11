@@ -87,7 +87,7 @@ Vec3 refract(const Vec3 &uv, const Vec3 &n, double etai_over_etat) {
 
 Vec3 random_in_unit_disk() {
   while (true) {
-    Vec3 p((rand() / (RAND_MAX + 1.0)) * 2 - 1, (rand() / (RAND_MAX + 1.0)) * 2 - 1, 0);
+    Vec3 p(random_double() * 2 - 1, random_double() * 2 - 1, 0);
     if (p.dot(p) >= 1) continue;
     return p;
   } 

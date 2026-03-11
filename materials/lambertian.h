@@ -7,9 +7,9 @@ Vec3 random_in_unit_sphere() {
   while (true) {
     // monte carlo sampling
     Vec3 p(
-      rand()/(double)RAND_MAX*2-1,
-      rand()/(double)RAND_MAX*2-1,
-      rand()/(double)RAND_MAX*2-1
+      2 * random_double() - 1,
+      2 * random_double() - 1,
+      2 * random_double() - 1
     );
 
     if (p.dot(p) >= 1) continue;

@@ -46,3 +46,33 @@ Mesh *load_obj(const std::string &filename, Material *mat, double scale, Vec3 of
 
   return mesh;
 }
+
+std::vector <Triangle*> load_obj_triangle(const std::string &path, Material *mat, double scale=1.0, Vec3 offset=Vec3(0,0,0)) {
+  std::vector<Triangle*> triangles;
+  tinyobj::attrib_t attrib;
+  std::vector<tinyobj::shape_t> shapes;
+  std::vector<tinyobj::material_t> materials;
+  std::string warn, err;
+
+  if(!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str())) {
+    std::cerr << warn << err << std::endl;
+    return triangles;
+  }
+
+  for(const auto &shape : shapes) {
+    size_t index_offset = 0;
+    for(size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
+      size_t fv = size_t(shape.mesh.num_face_vertices[f]);
+      if (fv != 3) continue;
+
+      Vec3 v[3];
+      for(size_t i = 0; i < 3; ++i) {
+        tinyobj::index_t idx = shape.mesh.indices[index_offset + i];
+        v[i] = Vec3(attrib.vertices[3*idx.vertex_index + 0], attrib.vertices[3*idx.vertex_index + 1], attrib.vertices[3*idx.vertex_index + 2]) * scale + offset;        
+      }
+      triangles.push_back(new Triangle(v[0], v[1], v[2], mat));
+      index_offset += fv;
+    }
+  }
+  return triangles;
+}

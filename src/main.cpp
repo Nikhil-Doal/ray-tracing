@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <vector>
 #include "../core/vec3.h"
 #include "../core/ray.h"
 #include "../core/hittable.h"
@@ -16,8 +17,7 @@
 #include "../utils/random_scene.h"
 #include "../objects/bvh_node.h"
 #include "../objects/obj_loader.h"
-
-Vec3 ray_color(const Ray &r, const Hittable &world, int depth);
+#include "../renderer/renderer.h"
 
 int main() {
   int width = 400;
@@ -33,31 +33,11 @@ int main() {
   world.add(bunny);
   BVHNode world_bvh(world.objects, 0, world.objects.size());
 
-  // // Materials
-  // Lambertian ground_mat(Vec3(0.8, 0.8, 0.0));
-  // Lambertian sphere1_mat(Vec3(0.7, 0.3, 0.3));
-  // Metal metal_mat(Vec3(0.8,0.8,0.8), 0.8);
-  // Dielectric glass(1.5); 
-
-  // // Spheres
-  // Sphere sphere1(Vec3(0,0,-1), 0.5, &sphere1_mat);
-  // Sphere ground(Vec3(0,-100.5,-1), 100, &ground_mat); // we can make the ground using another sphere for now
-  // Sphere metal_sphere(Vec3(1, 0, -1), 0.5, &metal_mat);
-  // Sphere glass_sphere(Vec3(-1,0, -1), 0.5, &glass);
-  // Sphere glass_sphere_hollow(Vec3(-1, 0, -1), -0.4, &glass);
-
-  // // Adding Spheres
-  // world.add(&sphere1);
-  // world.add(&metal_sphere);
-  // world.add(&ground);
-  // world.add(&glass_sphere);
-  // world.add(&glass_sphere_hollow);
-
   std::cout << "P3\n" << width << " " << height << "\n255\n";
   
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(1, 3, 1);
+  Vec3 lookfrom(3, 4, 1);
   Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
@@ -65,36 +45,24 @@ int main() {
 
   Camera camera(lookfrom, lookat, vup, 90, aspect_ratio, aperture, focus_dist);
 
+  // Storing pixels in frame buffer
+  std::vector<Vec3> framebuffer(width * height);
 
   // Rendering pixels
+  render_image(width, height, samples_per_pixel, max_depth, camera, world_bvh, framebuffer);
+
   for (int j = height - 1; j >= 0; --j) {
     for (int i = 0; i < width; ++i) {
-      Vec3 pixel_color(0,0,0);
-      for (int s = 0; s < samples_per_pixel; ++s) {
-        // Monte Carlo anti-aliasing
-        double u = (i + (rand() / (RAND_MAX + 1.0))) / (width - 1);
-        double v = (j + (rand() / (RAND_MAX + 1.0))) / (height - 1);
 
-        // Vec3 direction = lower_left_corner + horizontal*u + vertical*v - origin;
-        // // Ray ray(origin, direction.normalize());
-
-        // Vec3 rd = random_in_unit_disk() * lens_radius;
-        // Vec3 offset(rd.x, rd.y, 0);
-        // Ray ray(origin + offset, direction - offset);
-        Ray ray = camera.get_ray(u,v);
-
-        pixel_color = pixel_color + ray_color(ray, world_bvh, max_depth);
-      }
-
+      Vec3 pixel_color = framebuffer[j * width + i];
       pixel_color = pixel_color / samples_per_pixel;
 
-      // gamma correction
       pixel_color = Vec3(
           sqrt(pixel_color.x),
           sqrt(pixel_color.y),
           sqrt(pixel_color.z)
       );
-      // lambda clamping function to clip large values
+
       auto clamp = [](double x, double min, double max) {
         if (x < min) return min;
         if (x > max) return max;
@@ -111,24 +79,3 @@ int main() {
 }
 
 
-Vec3 ray_color(const Ray &r, const Hittable &world, int depth) {
-  if (depth <= 0) return Vec3(0,0,0);
-  HitRecord rec;
-
-  if (world.hit(r, 0.001, 1000, rec)) {
-    Ray scattered;
-    Vec3 attenuation;
-
-    if (rec.mat->scatter(r, rec, attenuation, scattered)) {
-      return ray_color(scattered, world, depth-1) * attenuation;
-    }
-
-    return Vec3(0,0,0);
-  }
-
-
-  Vec3 unit = r.direction.normalize();
-  double t = 0.5*(unit.y + 1.0);
-
-  return Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t; // sky gradient
-}
