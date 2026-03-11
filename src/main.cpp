@@ -24,10 +24,10 @@
 #include "../utils/image_writer.h"
 
 int main() {
-  int width = 1920;
-  int height = 1080;
+  int width = 400;
+  int height = 200;
   const int samples_per_pixel = 1000;
-  const int max_depth = 100;
+  const int max_depth = 50;
   srand(time(0));
 
   // Making the scene
@@ -51,7 +51,13 @@ int main() {
   // Storing pixels in frame buffer
   std::vector<Vec3> framebuffer(width * height);
 
-  // Rendering pixels
-  render_image(width, height, samples_per_pixel, max_depth, camera, world_bvh, framebuffer);
-  save_png("image.png", width, height, framebuffer, samples_per_pixel);
+  for (int i = 0; i < samples_per_pixel; ++i) {
+    // Rendering pixels
+    render_image(width, height, 1, max_depth, camera, world_bvh, framebuffer);
+    
+    if (i % 10 == 0) {
+      save_png("image.png", width, height, framebuffer, i);
+      std::cout << "Saved sample" << std::endl;
+    }
+  }
 }

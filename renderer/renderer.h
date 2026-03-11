@@ -40,7 +40,7 @@ void render_rows(int start_row, int end_row, int width, int height, int samples_
         pixel_color = pixel_color + ray_color(ray, world, max_depth);
       }
       // storing the frames
-      framebuffer[j*width + i] = pixel_color;
+      framebuffer[j*width + i] = framebuffer[j*width + i] + pixel_color;
     }
   }
 }
