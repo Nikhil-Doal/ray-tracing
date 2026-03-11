@@ -40,8 +40,8 @@ int main() {
   
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(2, 1, 0);
-  Vec3 lookat(0, 0, 0);
+  Vec3 lookfrom(2.5, 2, 1);
+  Vec3 lookat(2, 1, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
   double aperture = 0.0;
