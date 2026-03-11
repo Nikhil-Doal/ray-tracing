@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <vector>
+#include <fstream>
 #include "../core/vec3.h"
 #include "../core/ray.h"
 #include "../core/hittable.h"
@@ -29,11 +30,10 @@ int main() {
   // Making the scene
   HittableList world; // = random_scene();
   Material *white = new Lambertian(Vec3(0.8,0.8,0.8));
-  Mesh *bunny = load_obj("assets/models/bunny.obj", white, 10, Vec3(0, 0, 0));
-  world.add(bunny);
+  std::vector<Triangle*> triangles = load_obj_triangle("assets/models/bunny.obj", white, 10.0, Vec3(0,0,0));
+  for(auto t : triangles)
+    world.add(t);
   BVHNode world_bvh(world.objects, 0, world.objects.size());
-
-  std::cout << "P3\n" << width << " " << height << "\n255\n";
   
   // Camera setup
   double aspect_ratio = double(width)/height;
@@ -51,31 +51,29 @@ int main() {
   // Rendering pixels
   render_image(width, height, samples_per_pixel, max_depth, camera, world_bvh, framebuffer);
 
+  std::ofstream ofs("image.ppm", std::ios::binary);
+  ofs << "P6\n" << width << " " << height << "\n255\n";
+
   for (int j = height - 1; j >= 0; --j) {
-    for (int i = 0; i < width; ++i) {
+      for (int i = 0; i < width; ++i) {
+          Vec3 pixel_color = framebuffer[j * width + i];
+          pixel_color = pixel_color / samples_per_pixel;
+          pixel_color = Vec3(sqrt(pixel_color.x), sqrt(pixel_color.y), sqrt(pixel_color.z));
 
-      Vec3 pixel_color = framebuffer[j * width + i];
-      pixel_color = pixel_color / samples_per_pixel;
+          auto clamp = [](double x, double min, double max) {
+              if (x < min) return min;
+              if (x > max) return max;
+              return x;
+          };
 
-      pixel_color = Vec3(
-          sqrt(pixel_color.x),
-          sqrt(pixel_color.y),
-          sqrt(pixel_color.z)
-      );
-
-      auto clamp = [](double x, double min, double max) {
-        if (x < min) return min;
-        if (x > max) return max;
-        return x;
-      };
-
-      int ir = int(256 * clamp(pixel_color.x, 0.0, 0.999));
-      int ig = int(256 * clamp(pixel_color.y, 0.0, 0.999));
-      int ib = int(256 * clamp(pixel_color.z, 0.0, 0.999));
-
-      std::cout << ir << " " << ig << " " << ib << "\n";
-    }
+          unsigned char color[3] = {
+              static_cast<unsigned char>(256 * clamp(pixel_color.x, 0.0, 0.999)),
+              static_cast<unsigned char>(256 * clamp(pixel_color.y, 0.0, 0.999)),
+              static_cast<unsigned char>(256 * clamp(pixel_color.z, 0.0, 0.999))
+          };
+          ofs.write(reinterpret_cast<char*>(color), 3);
+      }
   }
+
+  ofs.close();
 }
-
-
