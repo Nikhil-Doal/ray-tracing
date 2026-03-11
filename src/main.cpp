@@ -24,10 +24,10 @@
 #include "../utils/image_writer.h"
 
 int main() {
-  int width = 400;
-  int height = 200;
-  const int samples_per_pixel = 100;
-  const int max_depth = 50;
+  int width = 1920;
+  int height = 1080;
+  const int samples_per_pixel = 1000;
+  const int max_depth = 100;
   srand(time(0));
 
   // Making the scene
@@ -40,7 +40,7 @@ int main() {
   
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(3, 4, 1);
+  Vec3 lookfrom(2, 1, 0);
   Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
