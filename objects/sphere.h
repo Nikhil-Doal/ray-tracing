@@ -1,5 +1,13 @@
 #pragma once
 #include "../core/hittable.h"
+#include <cmath>
+
+inline void get_sphere_uv(const Vec3 &p, double &u, double &v) {
+ double theta = acos(-p.y);
+ double phi = atan2(-p.z, p.x) + PI;
+ u = phi/ (2 * PI);
+ v = theta / PI;
+}
 
 class Sphere : public Hittable {
 public:
@@ -12,6 +20,7 @@ public:
   
 };
 Sphere::Sphere(Vec3 c, double r, Material* m) : center(c), radius(r), mat(m) {}
+
 bool Sphere::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) const {
   Vec3 oc = ray.origin - center;
 
@@ -30,6 +39,8 @@ bool Sphere::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) con
       
       Vec3 outward_normal = (rec.point - center) / radius;
       rec.set_face_normal(ray, outward_normal);
+      get_sphere_uv(outward_normal, rec.u, rec.v);
+
       return true;
     }
   }

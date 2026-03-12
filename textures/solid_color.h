@@ -1,0 +1,15 @@
+#ifndef SOLID_COLOR_H
+#define SOLID_COLOR_H
+
+#include "texture.h"
+
+class SolidColor : public Texture {
+public: 
+  Vec3 color;
+  SolidColor() {}
+  SolidColor(const Vec3 &c) : color(c) {}
+
+  Vec3 value(double u, double v, const Vec3 &p) const override {return color;}
+};
+
+#endif

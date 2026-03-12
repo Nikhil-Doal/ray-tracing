@@ -5,14 +5,14 @@ double reflectance(double cosine, double ref_idx);
 
 class Dielectric : public Material {
 public:
+  Texture *tint;
   double ir; // the index of refraction
-  Dielectric(double ir) : ir(ir) {}
+  Dielectric(double ir, Texture *tint = nullptr) : ir(ir), tint(tint) {}
   virtual bool scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const override;
 };
 
 bool Dielectric::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const{
-  
-  attenuation = Vec3(1.0, 1.0, 1.0);
+  attenuation = tint ? tint->value(rec.u, rec.v, rec.point) : Vec3(1.0, 1.0, 1.0);
   double refract_ratio = rec.front_face ? (1.0/ir) : ir;
   Vec3 unit_dir = ray_in.direction.normalize();
 

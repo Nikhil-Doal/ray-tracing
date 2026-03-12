@@ -7,6 +7,10 @@ struct HitRecord {
   Vec3 point;
   Vec3 normal;
   double t;
+
+  double u;
+  double v;
+
   Material *mat;
   bool front_face;
 
