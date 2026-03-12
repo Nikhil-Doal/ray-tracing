@@ -1,10 +1,10 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
 
 #include <iostream>
 #include <cmath>
 #include <cstdlib>
-#include <ctime>
 #include <vector>
 #include <fstream>
 #include "../core/vec3.h"
@@ -23,33 +23,36 @@
 #include "../renderer/renderer.h"
 #include "../utils/image_writer.h"
 #include "../textures/solid_color.h"
+#include "../textures/image_texture.h"
  
 
 int main() {
-  int width = 400;
-  int height = 200;
-  const int samples_per_pixel = 100;
+  int width = 1080;
+  int height = 720;
+  const int samples_per_pixel = 1000;
   const int max_depth = 50;
-  srand(time(0));
+
 
   // Making the scene
   HittableList world;
+
   Material *black = new Lambertian(new SolidColor(Vec3(0, 0, 0)));
   Material *tinted_glass = new Dielectric(1.5, new SolidColor(Vec3(0,0,0.3)));
   Material *green = new Lambertian(new SolidColor(Vec3(0, 1, 0) * 0.2));
   Material *gold_tint = new Metal(new SolidColor(Vec3(1, 0.84, 0)), 0.1);
-
-
-  world.add(new Sphere(Vec3(0, 0, 0), 2, gold_tint));
-  world.add(new Sphere(Vec3(4, 0, 0), 2, tinted_glass));
+  Material *earth_mat = new Lambertian(new ImageTexture("assets/earth.jpg"));
   
-  world.add(new Sphere(Vec3(0, -1001, 0), 1000, green));
+  // std::vector<Triangle*> triangles = load_obj_triangle("assets/models/bunny.obj", earth_mat, 80.0, Vec3(0,0,0));
+  // for (auto triangle : triangles) world.add(triangle);
+  world.add(new Sphere(Vec3(0, 0, 0), 20, earth_mat));
+  // world.add(new Sphere(Vec3(4, 0, 0), 2, tinted_glass));
+  
 
   BVHNode world_bvh(world.objects, 0, world.objects.size());
   
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(-3, 3, 3);
+  Vec3 lookfrom(20, 20, 20);
   Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
