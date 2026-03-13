@@ -1,7 +1,7 @@
 #include "lambertian.h"
 
 
-Lambertian::Lambertian (Texture* a) : albedo(a) {}
+Lambertian::Lambertian (std::shared_ptr<Texture> a) : albedo(a) {}
 
 bool Lambertian::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const{
   Vec3 scatter_direction = rec.normal + random_unit_vector();

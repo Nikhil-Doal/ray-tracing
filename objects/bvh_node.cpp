@@ -1,6 +1,6 @@
 #include "bvh_node.h"
 
-BVHNode::BVHNode(std::vector<Hittable*> &objects, size_t start, size_t end) {  
+BVHNode::BVHNode(std::vector<std::shared_ptr<Hittable>> &objects, size_t start, size_t end) {  
   int axis = int(3 * random_double());
   auto comparator = (axis == 0) ? box_x_compare : (axis == 1) ? box_y_compare : box_z_compare;
   size_t object_span = end - start;
@@ -19,8 +19,8 @@ BVHNode::BVHNode(std::vector<Hittable*> &objects, size_t start, size_t end) {
     std::sort(objects.begin() + start, objects.begin() + end, comparator);
     auto mid = start + object_span/2;
 
-    left = new BVHNode(objects, start, mid);
-    right = new BVHNode(objects, mid, end);
+    left = std::make_shared<BVHNode>(objects, start, mid);
+    right = std::make_shared<BVHNode>(objects, mid, end);
   }
 
   AABB box_left, box_right;

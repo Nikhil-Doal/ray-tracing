@@ -1,7 +1,7 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "obj_loader.h"
 
-Mesh *load_obj(const std::string &filename, Material *mat, double scale, Vec3 offset) {
+std::shared_ptr<Mesh> load_obj(const std::string &filename, std::shared_ptr<Material> mat, double scale, Vec3 offset) {
   tinyobj::attrib_t attrib;
   std::vector<tinyobj::shape_t> shapes;
   std::vector<tinyobj::material_t> materials;
@@ -15,7 +15,7 @@ Mesh *load_obj(const std::string &filename, Material *mat, double scale, Vec3 of
       return nullptr;
   }
 
-  Mesh *mesh = new Mesh();
+  auto mesh = std::make_shared<Mesh>();
 
   for (const auto &shape : shapes) {
     size_t index_offset = 0;
@@ -37,7 +37,7 @@ Mesh *load_obj(const std::string &filename, Material *mat, double scale, Vec3 of
         verts[v] = vertex;
       }
 
-      mesh -> add (new Triangle (verts[0], verts[1], verts[2], mat));
+      mesh -> add (std::make_shared<Triangle>(verts[0], verts[1], verts[2], mat));
       index_offset += fv;
     }
   }
@@ -45,8 +45,8 @@ Mesh *load_obj(const std::string &filename, Material *mat, double scale, Vec3 of
   return mesh;
 }
 
-std::vector <Triangle*> load_obj_triangle(const std::string &path, Material *mat, double scale, Vec3 offset) {
-  std::vector<Triangle*> triangles;
+std::vector <std::shared_ptr<Triangle>> load_obj_triangle(const std::string &path, std::shared_ptr<Material> mat, double scale, Vec3 offset) {
+  std::vector<std::shared_ptr<Triangle>> triangles;
   tinyobj::attrib_t attrib;
   std::vector<tinyobj::shape_t> shapes;
   std::vector<tinyobj::material_t> materials;
@@ -68,7 +68,7 @@ std::vector <Triangle*> load_obj_triangle(const std::string &path, Material *mat
         tinyobj::index_t idx = shape.mesh.indices[index_offset + i];
         v[i] = Vec3(attrib.vertices[3*idx.vertex_index + 0], attrib.vertices[3*idx.vertex_index + 1], attrib.vertices[3*idx.vertex_index + 2]) * scale + offset;        
       }
-      triangles.push_back(new Triangle(v[0], v[1], v[2], mat));
+      triangles.push_back(std::make_shared<Triangle>(v[0], v[1], v[2], mat));
       index_offset += fv;
     }
   }

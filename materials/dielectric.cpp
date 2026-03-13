@@ -1,7 +1,7 @@
 #include "dielectric.h"
 #include "../textures/texture.h"
 
-Dielectric::Dielectric(double ir, Texture *tint) : ir(ir), tint(tint) {}
+Dielectric::Dielectric(double ir, std::shared_ptr<Texture> tint) : ir(ir), tint(tint) {}
 
 bool Dielectric::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const{
   attenuation = tint ? tint->value(rec.u, rec.v, rec.point) : Vec3(1.0, 1.0, 1.0);

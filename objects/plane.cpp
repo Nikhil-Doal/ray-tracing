@@ -1,6 +1,6 @@
 #include "plane.h"
 
-Plane::Plane(const Vec3 &p, const Vec3 &n, Material *m, double s) : point(p), normal(n), mat(m), side(s) {}
+Plane::Plane(const Vec3 &p, const Vec3 &n, std::shared_ptr<Material> m, double s) : point(p), normal(n), mat(m), side(s) {}
 
 bool Plane::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) const {
   double denom = normal.dot(ray.direction);

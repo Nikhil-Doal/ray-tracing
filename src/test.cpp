@@ -1,4 +1,3 @@
-#define TINYOBJLOADER_IMPLEMENTATION
 #include <iostream>
 #include <chrono>
 #include <vector>
@@ -13,6 +12,8 @@
 #include "../objects/triangle.h"
 #include "../objects/obj_loader.h"
 #include "../renderer/renderer.h"
+#include "../textures/solid_color.h"
+#include <memory>
 
 using namespace std::chrono;
 
@@ -24,10 +25,10 @@ int main() {
 
     std::cout << "Generating world...\n";
     HittableList world;
-    Material* white = new Lambertian(Vec3(0.8,0.8,0.8));
+    auto white = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(0.8,0.8,0.8)));
 
     // Load bunny as triangles 
-    std::vector<Triangle*> triangles = load_obj_triangle("../assets/models/bunny.obj", white, 10.0, Vec3(0,0,0));
+    auto triangles = load_obj_triangle("../assets/models/bunny.obj", white, 10.0, Vec3(0,0,0));
     for(auto t : triangles)
         world.add(t);
 

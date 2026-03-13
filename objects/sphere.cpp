@@ -1,6 +1,6 @@
 #include "sphere.h"
 
-Sphere::Sphere(Vec3 c, double r, Material* m) : center(c), radius(r), mat(m) {}
+Sphere::Sphere(Vec3 c, double r, std::shared_ptr<Material> m) : center(c), radius(r), mat(m) {}
 
 bool Sphere::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) const {
   Vec3 oc = ray.origin - center;

@@ -1,6 +1,6 @@
 #include "hittable_list.h"
 
-void HittableList::add(Hittable *obj) {objects.push_back(obj);}
+void HittableList::add(std::shared_ptr<Hittable> obj) {objects.push_back(obj);}
 
 bool HittableList::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) const {
   HitRecord temp_record;

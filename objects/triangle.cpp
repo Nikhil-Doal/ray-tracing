@@ -1,5 +1,7 @@
 #include "triangle.h"
 
+Triangle::Triangle(Vec3 a, Vec3 b, Vec3 c, std::shared_ptr<Material> mat) : v0(a), v1(b), v2(c), mat(mat) {}
+
 // using Moller-Trumbore algorithm
 bool Triangle::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) const {
   const double EPSILON = 1e-8;

@@ -1,7 +1,9 @@
+#pragma once
 #include "../core/hittable.h"
 #include <iostream>
+#include <memory>
 
-inline bool box_compare(const Hittable *a, const Hittable *b, int axis) {
+inline bool box_compare(const std::shared_ptr<Hittable> a, const std::shared_ptr<Hittable> b, int axis) {
   AABB box_a; 
   AABB box_b;
   if (!a -> bounding_box(box_a) || !b -> bounding_box(box_b)) {
@@ -10,14 +12,14 @@ inline bool box_compare(const Hittable *a, const Hittable *b, int axis) {
   return box_a.minimum[axis] < box_b.minimum[axis];
 }
 
-inline bool box_x_compare(const Hittable *a, const Hittable *b) {
+inline bool box_x_compare(const std::shared_ptr<Hittable> a, const std::shared_ptr<Hittable> b) {
   return box_compare(a, b, 0);
 }
 
-inline bool box_y_compare(const Hittable *a, const Hittable *b) {
+inline bool box_y_compare(const std::shared_ptr<Hittable> a, const std::shared_ptr<Hittable> b) {
   return box_compare(a, b, 1);
 }
 
-inline bool box_z_compare(const Hittable *a, const Hittable *b) {
+inline bool box_z_compare(const std::shared_ptr<Hittable> a, const std::shared_ptr<Hittable> b) {
   return box_compare(a, b, 2);
 }

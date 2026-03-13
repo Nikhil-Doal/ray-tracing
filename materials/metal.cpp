@@ -2,7 +2,7 @@
 #include "../textures/texture.h"
 #include "lambertian.h"
 
-Metal::Metal(Texture* a, double f) : albedo(a), fuzz(f < 1 ? f : 1) {}
+Metal::Metal(std::shared_ptr<Texture> a, double f) : albedo(a), fuzz(f < 1 ? f : 1) {}
 
 bool Metal::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const {
   Vec3 reflected = reflect(ray_in.direction.normalize(), rec.normal);

@@ -1,6 +1,7 @@
 #pragma once
 #include "ray.h"
 #include "../objects/aabb.h"
+#include <memory>
 
 class Material;
 
@@ -12,7 +13,7 @@ struct HitRecord {
   double u;
   double v;
 
-  Material *mat;
+  std::shared_ptr<Material> mat;
   bool front_face;
 
   inline void set_face_normal(const Ray &ray, const Vec3 &outward_normal) {
