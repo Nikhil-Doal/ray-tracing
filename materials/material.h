@@ -7,4 +7,5 @@ class HitRecord;
 class Material {
 public:
   virtual bool scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const = 0;
+  virtual bool is_transmissive() const {return false;}
 };

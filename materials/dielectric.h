@@ -12,4 +12,5 @@ public:
   double ir; // the index of refraction
   Dielectric(double ir, std::shared_ptr<Texture> tint = nullptr);
   virtual bool scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const override;
+  bool is_transmissive() const override { return true; }
 };
