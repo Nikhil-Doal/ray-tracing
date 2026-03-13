@@ -61,7 +61,7 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
   }
   Vec3 unit = r.direction.normalize();
   double t = 0.5*(unit.y + 1.0);
-  return (Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t) * 0.2; // bounced rays that miss = black
+  return (Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t) * 0.5; // bounced rays that miss = black
 }
 
 inline void render_rows(int start_row, int end_row, int width, int height, int samples_per_pixel, int max_depth, const Camera &camera, const Hittable &world, const LightList &lights, std::vector<Vec3> &framebuffer) {

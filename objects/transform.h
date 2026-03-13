@@ -31,11 +31,13 @@ public:
 
     p.x = cos_y * rec.point.x - sin_y * rec.point.z;
     p.z = sin_y * rec.point.x + cos_y * rec.point.z;
+
     n.x = cos_y * rec.normal.x - sin_y * rec.normal.z;
     n.z = sin_y * rec.normal.x + cos_y * rec.normal.z;
 
     rec.point = p;
-    rec.set_face_normal(rotated_ray, n);
+    Vec3 world_rd = ray.direction;
+    rec.set_face_normal(Ray(rec.point, world_rd), n.normalize());
     return true;
   }
 

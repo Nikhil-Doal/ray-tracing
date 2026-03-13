@@ -34,7 +34,7 @@ int main() {
   int width = 1080;
   int height = 720;
   const int samples_per_pixel = 10;
-  const int max_depth = 50;
+  const int max_depth = 20;
 
   // Making the scene
   HittableList world;
@@ -46,23 +46,23 @@ int main() {
   auto black = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(1, 0, 0)));
   auto tinted_glass = std::make_shared<Dielectric>(1.5, std::make_shared<SolidColor>(Vec3(1,1,1)));
   auto green = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(0, 1, 0) * 0.2));
-  auto gold_tint = std::make_shared<Metal>(std::make_shared<SolidColor>(Vec3(0.8, 0.8, 0.8)), 0.0);
+  auto gold_tint = std::make_shared<Metal>(std::make_shared<SolidColor>(Vec3(1.0, 1.0, 1.0)), 0.0);
   auto earth_mat = std::make_shared<Lambertian>(std::make_shared<ImageTexture>("../assets/earth.png"));
 
-  world.add(std::make_shared<Plane>(Vec3(0, 0 , 0), Vec3(0,1,0), gold_tint));
+  world.add(std::make_shared<Plane>(Vec3(0, 0, 0), Vec3(0,1,0), black));
   
   // load triangles into a hittable list first
   auto bunny_list = std::make_shared<HittableList>();
-  auto triangles = load_obj_triangle("../assets/models/bunny.obj", black, 200.0, Vec3(0,0,0));
+  auto triangles = load_obj_triangle("../assets/grass/10450_Rectangular_Grass_Patch_v1_iterations-2.obj", green, 0.1, Vec3(0,0,0));
   for (auto t : triangles)
-      bunny_list->add(t);
+      world.add(t);
 
-  // build a BVH over just the bunny
-  auto bunny_bvh = std::make_shared<BVHNode>(bunny_list->objects, 0, bunny_list->objects.size());
+  // // build a BVH over just the bunny
+  // auto bunny_bvh = std::make_shared<BVHNode>(bunny_list->objects, 0, bunny_list->objects.size());
 
-  // rotate the whole thing as one unit
-  auto rotated_bunny = std::make_shared<Transform>(bunny_bvh, -90);
-  world.add(rotated_bunny);
+  // // rotate the whole thing as one unit
+  // auto rotated_bunny = std::make_shared<Transform>(bunny_bvh, 0);
+  // world.add(rotated_bunny);
 
   // world.add(std::make_shared<Sphere>(Vec3(0, 0, 0), 20, earth_mat));
   // world.add(std::make_shared<Sphere>(Vec3(4, 0, 0), 2, tinted_glass));
@@ -72,7 +72,7 @@ int main() {
   
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(30, 50, 30);
+  Vec3 lookfrom(30, 30, 30);
   Vec3 lookat(0, 5, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
