@@ -8,7 +8,6 @@ ImageTexture::ImageTexture(const std::string &filename) {
     width = height = channels = 0;
   }
   generate_mipmaps();
-  std::cout << "Mip Level: " << mipmaps.size() << "\n";
 }
 
 ImageTexture::~ImageTexture() {
@@ -18,18 +17,20 @@ ImageTexture::~ImageTexture() {
   if (data) stbi_image_free(data);
 }
 
-Vec3 ImageTexture::value(double u, double v, const Vec3 &point) const {
+Vec3 ImageTexture::value(double u, double v, const Vec3 &point, double ray_t) const {
   if (!data) return Vec3(0, 1, 1); // random debugging color
-  int level = 0;
-  // int d = point.norm();
-  // int level =
-  //   d < 5   ? 0 :
-  //   d < 15  ? 1 :
-  //   d < 40  ? 2 :
-  //   d < 80  ? 3 :
-  //             4;//std::min((int)(point.norm()*0.5), (int)mipmaps.size() - 1);
-  const MipLevel &mip = mipmaps[level];
+  int max_level = (int)mipmaps.size() -1 ;
+  
+  // we want to see where texels to pixels is approx 1:1 but we can't do the du/dv in rasterizers
+  // using the following approximation, where ray_t is world-space distance, width gives texel density
 
+  double texels_per_pixel = ray_t * 0.2;
+  int level = (int)log2(std::max(texels_per_pixel, 1.0));
+  level = std::clamp(level, 0, max_level);
+
+  const MipLevel &mip = mipmaps[level];
+  
+  // bilinear filtering
   int w = mip.width;
   int h = mip.height;
   unsigned char* tex = mip.data;
@@ -53,7 +54,6 @@ Vec3 ImageTexture::value(double u, double v, const Vec3 &point) const {
     return pow(x, 2.2);
   };
 
-  // bilinear filtering
   auto get_pixel = [&](int i, int j) {
     int index = (j * w + i) * 3;
     return Vec3(srgb_to_linear(tex[index] / 255.0), srgb_to_linear(tex[index + 1] / 255.0), srgb_to_linear(tex[index + 2] / 255.0));

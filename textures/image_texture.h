@@ -20,5 +20,5 @@ public:
 
   ImageTexture(const std::string &filename);
   ~ImageTexture();
-  Vec3 value(double u, double v, const Vec3 &point) const override;
+  Vec3 value(double u, double v, const Vec3 &point, double ray_t = 0.0) const override;
 };

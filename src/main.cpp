@@ -30,7 +30,7 @@
 int main() {
   int width = 1080;
   int height = 720;
-  const int samples_per_pixel = 100;
+  const int samples_per_pixel = 10;
   const int max_depth = 50;
 
   // Making the scene
@@ -54,7 +54,7 @@ int main() {
   
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(-20, 20, -20);
+  Vec3 lookfrom(20, 20, 20);
   Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
