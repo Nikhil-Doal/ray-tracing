@@ -26,7 +26,7 @@
 #include "../textures/image_texture.h"
 #include "../lights/point_light.h"
 #include "../lights/directional_light.h"
-#include "../objects/transform.h"
+#include "../objects/rotate.h"
 #include <memory>
  
 
@@ -43,31 +43,21 @@ int main() {
   // lights.push_back(std::make_shared<PointLight>(Vec3(-20, 20, 20), Vec3(1,1,1), 100.0));
   lights.push_back(std::make_shared<DirectionalLight>(Vec3(-1,1,1), Vec3(1,1,1), 1));
 
-  auto black = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(1, 0, 0)));
-  auto tinted_glass = std::make_shared<Dielectric>(1.5, std::make_shared<SolidColor>(Vec3(1,1,1)));
-  auto green = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(0, 1, 0) * 0.2));
-  auto gold_tint = std::make_shared<Metal>(std::make_shared<SolidColor>(Vec3(1.0, 1.0, 1.0)), 0.0);
-  auto earth_mat = std::make_shared<Lambertian>(std::make_shared<ImageTexture>("../assets/earth.png"));
+  auto mat1 = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(1, 0, 0)));
+  auto mat2 = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(0, 1, 0) * 0.2));
+  auto mat3 = std::make_shared<Dielectric>(1.5, std::make_shared<SolidColor>(Vec3(1,1,1)));
+  auto mat4 = std::make_shared<Metal>(std::make_shared<SolidColor>(Vec3(1.0, 1.0, 1.0)), 0.0);
+  auto mat5 = std::make_shared<Lambertian>(std::make_shared<ImageTexture>("../assets/earth.png"));
 
-  world.add(std::make_shared<Plane>(Vec3(0, 0, 0), Vec3(0,1,0), black));
-  
-  // load triangles into a hittable list first
-  auto bunny_list = std::make_shared<HittableList>();
-  auto triangles = load_obj_triangle("../assets/grass/10450_Rectangular_Grass_Patch_v1_iterations-2.obj", green, 0.1, Vec3(0,0,0));
+  world.add(std::make_shared<Plane>(Vec3(0, -2, 0), Vec3(0,1,0), mat1));
+
+  auto obj_list = std::make_shared<HittableList>();
+  auto triangles = load_obj_triangle("../assets/grass/10450_Rectangular_Grass_Patch_v1_iterations-2.obj", mat2, 0.1, Vec3(0,1,0));
   for (auto t : triangles)
-      world.add(t);
+      obj_list -> add(t);  
 
-  // // build a BVH over just the bunny
-  // auto bunny_bvh = std::make_shared<BVHNode>(bunny_list->objects, 0, bunny_list->objects.size());
-
-  // // rotate the whole thing as one unit
-  // auto rotated_bunny = std::make_shared<Transform>(bunny_bvh, 0);
-  // world.add(rotated_bunny);
-
-  // world.add(std::make_shared<Sphere>(Vec3(0, 0, 0), 20, earth_mat));
-  // world.add(std::make_shared<Sphere>(Vec3(4, 0, 0), 2, tinted_glass));
-  
-
+  auto obj_bvh = std::make_shared<BVHNode>(obj_list->objects, 0, obj_list->objects.size());
+  world.add(std::make_shared<Rotate>(obj_bvh, 90, 0, 0));
   BVHNode world_bvh(world.objects, 0, world.objects.size());
   
   // Camera setup
@@ -86,10 +76,6 @@ int main() {
   for (int i = 0; i < samples_per_pixel; ++i) {
     // Rendering pixels
     render_image(width, height, 1, max_depth, camera, world_bvh, lights, framebuffer);
-    
     save_png("../image.png", width, height, framebuffer, i);
-    // if (i % 10 == 0) {
-    //   std::cout << "Saved sample" << std::endl;
-    // }
   }
 }

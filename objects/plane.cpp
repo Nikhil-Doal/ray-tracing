@@ -10,16 +10,19 @@ bool Plane::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) cons
   if (t < t_min || t > t_max) return false;
 
   Vec3 hitpoint = ray.at(t);
-  if (side > 0) {
-    Vec3 local = hitpoint - point;
-    Vec3 u_axis = normal.cross(Vec3(0, 1, 0));
-    if (u_axis.norm() < 1e-3) u_axis = normal.cross(Vec3(1, 0, 0));
-    u_axis = u_axis.normalize();
-    Vec3 v_axis = normal.cross(u_axis);
 
+
+  Vec3 u_axis = normal.cross(Vec3(0, 1, 0));
+  if (u_axis.norm() < 1e-3) u_axis = normal.cross(Vec3(1, 0, 0));
+  u_axis = u_axis.normalize();
+  Vec3 v_axis = normal.cross(u_axis);
+  Vec3 local = hitpoint - point;
+  rec.u = fmod(fabs(local.dot(u_axis) * 0.1), 1.0);  // 0.1 = tiling scale
+  rec.v = fmod(fabs(local.dot(v_axis) * 0.1), 1.0);
+  
+  if (side > 0) {
     double u = local.dot(u_axis);
     double v = local.dot(v_axis);
-
     if (fabs(u) > side/2 || fabs(v) > side/2) return false; // not in plane range
   }
 

@@ -1,50 +1,6 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "obj_loader.h"
 
-std::shared_ptr<Mesh> load_obj(const std::string &filename, std::shared_ptr<Material> mat, double scale, Vec3 offset) {
-  tinyobj::attrib_t attrib;
-  std::vector<tinyobj::shape_t> shapes;
-  std::vector<tinyobj::material_t> materials;
-
-  std::string warn, err;
-  bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename.c_str());
-  if (!warn.empty()) std::cout << warn << std::endl;
-  if (!err.empty()) std::cerr << err << std::endl;
-  if (!ret) {
-      std::cerr << "Failed to load OBJ: " << filename << std::endl;
-      return nullptr;
-  }
-
-  auto mesh = std::make_shared<Mesh>();
-
-  for (const auto &shape : shapes) {
-    size_t index_offset = 0;
-
-    for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
-      int fv = shape.mesh.num_face_vertices[f];
-      Vec3 verts[3];
-
-      for (size_t v = 0; v < fv; ++v) {
-        tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
-        float vx = attrib.vertices[3*idx.vertex_index];
-        float vy = attrib.vertices[3*idx.vertex_index + 1];
-        float vz = attrib.vertices[3*idx.vertex_index + 2];
-
-        Vec3 vertex(vx, vy, vz);
-        vertex = vertex * scale;
-        vertex = vertex + offset;
-
-        verts[v] = vertex;
-      }
-
-      mesh -> add (std::make_shared<Triangle>(verts[0], verts[1], verts[2], mat));
-      index_offset += fv;
-    }
-  }
-
-  return mesh;
-}
-
 std::vector <std::shared_ptr<Triangle>> load_obj_triangle(const std::string &path, std::shared_ptr<Material> default_mat, double scale, Vec3 offset) {
   std::vector<std::shared_ptr<Triangle>> triangles;
   tinyobj::attrib_t attrib;
@@ -71,6 +27,11 @@ std::vector <std::shared_ptr<Triangle>> load_obj_triangle(const std::string &pat
     if (m.illum == 3) {
       double fuzz = 1.0 - m.shininess / 1000.0;
       mats.push_back(std::make_shared<Metal>(tex, fuzz));
+    } else if (m.illum == 5 || m.illum == 7) {
+      double dissolve = m.dissolve; // 1.0 = fully opaque, 0.0 = fully transparent
+      if (dissolve < 0.99) {
+        mats.push_back(std::make_shared<Dielectric>(m.ior > 0 ? m.ior : 1.5, 
+                      std::make_shared<SolidColor>(Vec3(m.transmittance[0], m.transmittance[1], m.transmittance[2]))));
     } else {
       mats.push_back(std::make_shared<Lambertian>(tex));
     }
