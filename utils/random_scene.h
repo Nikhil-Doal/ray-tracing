@@ -26,7 +26,7 @@ inline HittableList random_scene() {
         } else if (choose_mat < 0.95){
           Vec3 albedo = Vec3::random(0.5, 1);
           double fuzz = random_double() * 0.5;
-          sphere_mat = std::make_shared<Metal>(std::make_shared<SolidColor>(albedo, fuzz));
+          sphere_mat = std::make_shared<Metal>(std::make_shared<SolidColor>(albedo), fuzz);
         } else {
           sphere_mat = std::make_shared<Dielectric>(1.5);
         }

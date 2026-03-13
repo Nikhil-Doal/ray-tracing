@@ -6,10 +6,6 @@
 #include <cstdlib>
 #include <memory>
 
-
-Vec3 random_in_unit_sphere();
-Vec3 random_unit_vector();
-
 class Lambertian : public Material {
 public:
   std::shared_ptr<Texture> albedo;

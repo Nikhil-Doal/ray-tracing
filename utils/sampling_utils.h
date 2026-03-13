@@ -2,7 +2,7 @@
 #include "../core/vec3.h"
 #include "math_utils.h"
 
-Vec3 random_in_unit_sphere() {
+inline Vec3 random_in_unit_sphere() {
   while (true) {
     // monte carlo sampling
     Vec3 p( 2 * random_double() - 1, 2 * random_double() - 1, 2 * random_double() - 1);
@@ -12,6 +12,6 @@ Vec3 random_in_unit_sphere() {
   }
 }
 
-Vec3 random_unit_vector() {
+inline Vec3 random_unit_vector() {
   return random_in_unit_sphere().normalize();
 }
