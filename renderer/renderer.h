@@ -5,7 +5,7 @@
 #include "../core/camera.h"
 #include "../core/hittable.h"
 
-Vec3 ray_color(const Ray &r, const Hittable &world, int depth) {
+inline Vec3 ray_color(const Ray &r, const Hittable &world, int depth) {
   if (depth <= 0) return Vec3(0,0,0);
   HitRecord rec;
 
@@ -27,7 +27,7 @@ Vec3 ray_color(const Ray &r, const Hittable &world, int depth) {
   return Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t; // sky gradient
 }
 
-void render_rows(int start_row, int end_row, int width, int height, int samples_per_pixel, int max_depth, const Camera &camera, const Hittable &world, std::vector<Vec3> &framebuffer) {
+inline void render_rows(int start_row, int end_row, int width, int height, int samples_per_pixel, int max_depth, const Camera &camera, const Hittable &world, std::vector<Vec3> &framebuffer) {
   for (int j = start_row; j < end_row; ++j) {
     for (int i = 0; i < width; ++i) {
       Vec3 pixel_color(0,0,0);

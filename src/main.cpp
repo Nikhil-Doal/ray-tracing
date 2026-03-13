@@ -1,4 +1,3 @@
-#define TINYOBJLOADER_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 
@@ -33,17 +32,16 @@ int main() {
   const int samples_per_pixel = 100;
   const int max_depth = 50;
 
-
   // Making the scene
   HittableList world;
 
-  Material *black = new Lambertian(new SolidColor(Vec3(0, 0, 0)));
+  Material *black = new Lambertian(new SolidColor(Vec3(0.8, 0.8, 0.8)));
   Material *tinted_glass = new Dielectric(1.5, new SolidColor(Vec3(0,0,0.3)));
   Material *green = new Lambertian(new SolidColor(Vec3(0, 1, 0) * 0.2));
-  Material *gold_tint = new Metal(new SolidColor(Vec3(1, 0.84, 0)), 0.1);
-  Material *earth_mat = new Lambertian(new ImageTexture("assets/earth.jpg"));
+  Material *gold_tint = new Metal(new SolidColor(Vec3(0.8, 0.8, 0.8)), 0.1);
+  Material *earth_mat = new Lambertian(new ImageTexture("../assets/earth.jpg"));
 
-  world.add(new Plane(Vec3(0, -10 , 0), Vec3(0,1,0), black));
+  world.add(new Plane(Vec3(0, -10 , 0), Vec3(0,1,0), gold_tint));
   
   // std::vector<Triangle*> triangles = load_obj_triangle("assets/models/bunny.obj", earth_mat, 80.0, Vec3(0,0,0));
   // for (auto triangle : triangles) world.add(triangle);
@@ -55,7 +53,7 @@ int main() {
   
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(20, 30, 20);
+  Vec3 lookfrom(-20, 20, -20);
   Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
@@ -70,7 +68,7 @@ int main() {
     // Rendering pixels
     render_image(width, height, 1, max_depth, camera, world_bvh, framebuffer);
     
-    save_png("image.png", width, height, framebuffer, i);
+    save_png("../image.png", width, height, framebuffer, i);
     // if (i % 10 == 0) {
     //   std::cout << "Saved sample" << std::endl;
     // }

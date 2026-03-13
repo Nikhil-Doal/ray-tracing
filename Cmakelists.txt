@@ -1,0 +1,43 @@
+cmake_minimum_required(VERSION 3.10)
+ 
+# Force g++ before project() locks in the compiler
+if(NOT DEFINED CMAKE_CXX_COMPILER)
+  set(CMAKE_CXX_COMPILER "g++")
+endif()
+ 
+project(raytracer)
+ 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ 
+# Release build flags
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+ 
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra")
+ 
+add_executable(render
+    src/main.cpp
+    core/vec3.cpp
+    core/ray.cpp
+    core/camera.cpp
+    objects/sphere.cpp
+    objects/triangle.cpp
+    objects/plane.cpp
+    objects/bvh_node.cpp
+    objects/hittable_list.cpp
+    objects/obj_loader.cpp
+    materials/lambertian.cpp
+    materials/metal.cpp
+    materials/dielectric.cpp
+    textures/image_texture.cpp
+)
+ 
+# So includes like "../core/vec3.h" resolve correctly
+target_include_directories(render PRIVATE .)
+ 
+# Link threads for std::thread in renderer.h
+find_package(Threads REQUIRED)
+target_link_libraries(render PRIVATE Threads::Threads)
