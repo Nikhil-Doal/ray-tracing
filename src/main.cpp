@@ -39,8 +39,8 @@ int main() {
   HittableList world;
   LightList lights;
 
-  // lights.push_back(std::make_shared<PointLight>(Vec3(20, 20, 20), Vec3(1,1,1), 100.0));
-  lights.push_back(std::make_shared<DirectionalLight>(Vec3(1,1,1), Vec3(1,1,0.9), 0.05));
+  lights.push_back(std::make_shared<PointLight>(Vec3(-20, 20, 20), Vec3(1,1,1), 100.0));
+  lights.push_back(std::make_shared<DirectionalLight>(Vec3(1,1,1), Vec3(1,1,1), 1));
 
   auto black = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(0.8, 0.8, 0.8)));
   auto tinted_glass = std::make_shared<Dielectric>(1.5, std::make_shared<SolidColor>(Vec3(0,0,0.3)));

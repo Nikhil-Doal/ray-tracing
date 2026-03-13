@@ -10,9 +10,14 @@ using LightList = std::vector<std::shared_ptr<Light>>;
 
 inline Vec3 direct_light(const HitRecord &rec, const Hittable &world, const LightList &lights) {
   Vec3 direct(0,0,0);
+
+  Ray dummy(rec.point, rec.normal);
+  Vec3 attenuation(1,1,1);
+  Ray scattered;
+  if (rec.mat) rec.mat->scatter(dummy, rec, attenuation, scattered);
+
   for (const auto &light : lights) {
     LightSample ls = light->sample(rec.point);
-
     Vec3 to_light = ls.point - rec.point;
     double dist = to_light.norm();
     Vec3 to_light_dir = to_light / dist;
@@ -27,31 +32,36 @@ inline Vec3 direct_light(const HitRecord &rec, const Hittable &world, const Ligh
     if (world.hit(shadow_ray, 0.001, dist - 0.001, shadow_rec)) continue; // occluded
 
     // Lambert BRDF * light emission * cos falloff / pdf
-    direct = direct + ls.emission * cos_theta / ls.pdf;
+    direct = direct + ls.emission * attenuation* cos_theta / ls.pdf;
   }
   return direct;
 }
 
-inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &lights, int depth) {
+inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &lights, int depth, bool is_first_hit = true) {
   if (depth <= 0) return Vec3(0,0,0);
   HitRecord rec;
 
   if (world.hit(r, 0.001, 1000, rec)) {
     Ray scattered;
     Vec3 attenuation;
-    Vec3 direct = direct_light(rec, world, lights);
 
     if (rec.mat->scatter(r, rec, attenuation, scattered)) {
-      Vec3 indirect = ray_color(scattered, world, lights, depth-1) * attenuation;
+      Vec3 direct(0,0,0);
+      if (is_first_hit) direct = direct_light(rec, world, lights);
+      Vec3 indirect = ray_color(scattered, world, lights, depth-1, false) * attenuation;
       return direct + indirect;
     }
-
-    return direct * attenuation;
+    return Vec3(0,0,0);
   }
   // sky gradient
+  if (is_first_hit) {
+    Vec3 unit = r.direction.normalize();
+    double t = 0.5*(unit.y + 1.0);
+    return Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t;
+  }
   Vec3 unit = r.direction.normalize();
   double t = 0.5*(unit.y + 1.0);
-  return Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t; 
+  return (Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t) * 0.08; // bounced rays that miss = black
 }
 
 inline void render_rows(int start_row, int end_row, int width, int height, int samples_per_pixel, int max_depth, const Camera &camera, const Hittable &world, const LightList &lights, std::vector<Vec3> &framebuffer) {

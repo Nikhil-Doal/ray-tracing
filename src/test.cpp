@@ -13,6 +13,7 @@
 #include "../objects/obj_loader.h"
 #include "../renderer/renderer.h"
 #include "../textures/solid_color.h"
+#include "../lights/light.h"
 #include <memory>
 
 using namespace std::chrono;
@@ -22,6 +23,7 @@ int main() {
     int height = 200;
     int samples_per_pixel = 10;
     int max_depth = 5;
+    LightList lights;
 
     std::cout << "Generating world...\n";
     HittableList world;
@@ -45,7 +47,7 @@ int main() {
 
     std::cout << "Rendering: raw single-threaded...\n";
     auto start1 = high_resolution_clock::now();
-    render_rows(0, height, width, height, samples_per_pixel, max_depth, camera, world, framebuffer);
+    render_rows(0, height, width, height, samples_per_pixel, max_depth, camera, world, lights, framebuffer);
     auto end1 = high_resolution_clock::now();
     std::cout << "Raw: " << duration_cast<seconds>(end1-start1).count() << " s\n";
 
@@ -54,13 +56,13 @@ int main() {
 
     std::cout << "Rendering: BVH single-threaded...\n";
     auto start2 = high_resolution_clock::now();
-    render_rows(0, height, width, height, samples_per_pixel, max_depth, camera, world_bvh, framebuffer);
+    render_rows(0, height, width, height, samples_per_pixel, max_depth, camera, world_bvh, lights, framebuffer);
     auto end2 = high_resolution_clock::now();
     std::cout << "BVH: " << duration_cast<seconds>(end2-start2).count() << " s\n";
 
     std::cout << "Rendering: BVH multithreaded...\n";
     auto start3 = high_resolution_clock::now();
-    render_image(width, height, samples_per_pixel, max_depth, camera, world_bvh, framebuffer);
+    render_image(width, height, samples_per_pixel, max_depth, camera, world_bvh, lights, framebuffer);
     auto end3 = high_resolution_clock::now();
     std::cout << "BVH + multithreaded: " << duration_cast<seconds>(end3-start3).count() << " s\n";
 
