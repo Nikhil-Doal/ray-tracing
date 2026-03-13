@@ -24,6 +24,8 @@
 #include "../utils/image_writer.h"
 #include "../textures/solid_color.h"
 #include "../textures/image_texture.h"
+#include "../lights/point_light.h"
+#include "../lights/directional_light.h"
 #include <memory>
  
 
@@ -35,6 +37,10 @@ int main() {
 
   // Making the scene
   HittableList world;
+  LightList lights;
+
+  // lights.push_back(std::make_shared<PointLight>(Vec3(20, 20, 20), Vec3(1,1,1), 100.0));
+  lights.push_back(std::make_shared<DirectionalLight>(Vec3(1,1,1), Vec3(1,1,0.9), 0.05));
 
   auto black = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(0.8, 0.8, 0.8)));
   auto tinted_glass = std::make_shared<Dielectric>(1.5, std::make_shared<SolidColor>(Vec3(0,0,0.3)));
@@ -42,7 +48,7 @@ int main() {
   auto gold_tint = std::make_shared<Metal>(std::make_shared<SolidColor>(Vec3(0.8, 0.8, 0.8)), 0.1);
   auto earth_mat = std::make_shared<Lambertian>(std::make_shared<ImageTexture>("../assets/earth.jpg"));
 
-  world.add(std::make_shared<Plane>(Vec3(0, -10 , 0), Vec3(0,1,0), gold_tint));
+  world.add(std::make_shared<Plane>(Vec3(0, -10 , 0), Vec3(0,1,0), black));
   
   // std::vector<Triangle*> triangles = load_obj_triangle("assets/models/bunny.obj", earth_mat, 80.0, Vec3(0,0,0));
   // for (auto triangle : triangles) world.add(triangle);
@@ -54,7 +60,7 @@ int main() {
   
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(20, 20, 20);
+  Vec3 lookfrom(-20, 20, -20);
   Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
@@ -67,7 +73,7 @@ int main() {
 
   for (int i = 0; i < samples_per_pixel; ++i) {
     // Rendering pixels
-    render_image(width, height, 1, max_depth, camera, world_bvh, framebuffer);
+    render_image(width, height, 1, max_depth, camera, world_bvh, lights, framebuffer);
     
     save_png("../image.png", width, height, framebuffer, i);
     // if (i % 10 == 0) {
