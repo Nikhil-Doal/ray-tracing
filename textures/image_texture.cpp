@@ -1,5 +1,7 @@
 #include "image_texture.h"
 #include <algorithm>
+#include <cmath>
+#include <iostream>
 
 ImageTexture::ImageTexture(const std::string &filename) {
   data = stbi_load(filename.c_str(), &width, &height, &channels, 3);

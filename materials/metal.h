@@ -3,6 +3,7 @@
 #include "../core/vec3.h"
 #include "../core/ray.h"
 #include "../core/hittable.h"
+#include "../utils/sampling_utils.h"
 #include <memory>
 
 class Texture;

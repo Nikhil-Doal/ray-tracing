@@ -1,3 +1,4 @@
+#pragma once
 #include "../materials/metal.h"
 #include "../materials/lambertian.h"
 #include "../materials/dielectric.h"
@@ -21,11 +22,11 @@ inline HittableList random_scene() {
 
         if (choose_mat < 0.8) {
           Vec3 albedo = Vec3::random() * Vec3::random();
-          sphere_mat = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(albedo)));
+          sphere_mat = std::make_shared<Lambertian>(std::make_shared<SolidColor>(albedo));
         } else if (choose_mat < 0.95){
           Vec3 albedo = Vec3::random(0.5, 1);
           double fuzz = random_double() * 0.5;
-          sphere_mat = std::make_shared<Metal>(std::make_shared<SolidColor>(Vec3(albedo)), fuzz);
+          sphere_mat = std::make_shared<Metal>(std::make_shared<SolidColor>(albedo, fuzz));
         } else {
           sphere_mat = std::make_shared<Dielectric>(1.5);
         }

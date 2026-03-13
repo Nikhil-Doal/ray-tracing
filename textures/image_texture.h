@@ -2,7 +2,6 @@
 #include "texture.h"
 #include "../external/stbimagewrite/stb_image.h"
 #include "../core/vec3.h"
-#include <iostream>
 
 class ImageTexture : public Texture {
 public:

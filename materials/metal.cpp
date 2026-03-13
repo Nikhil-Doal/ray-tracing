@@ -1,6 +1,5 @@
 #include "metal.h"
 #include "../textures/texture.h"
-#include "lambertian.h"
 
 Metal::Metal(std::shared_ptr<Texture> a, double f) : albedo(a), fuzz(f < 1 ? f : 1) {}
 

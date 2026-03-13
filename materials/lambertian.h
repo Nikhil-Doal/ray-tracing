@@ -2,8 +2,10 @@
 #pragma once
 #include "material.h"
 #include "../textures/texture.h"
+#include "../utils/sampling_utils.h"
 #include <cstdlib>
 #include <memory>
+
 
 Vec3 random_in_unit_sphere();
 Vec3 random_unit_vector();

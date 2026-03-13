@@ -1,5 +1,4 @@
-#ifndef SOLID_COLOR_H
-#define SOLID_COLOR_H
+#pragma once
 
 #include "texture.h"
 
@@ -11,5 +10,3 @@ public:
 
   inline Vec3 value(double u, double v, const Vec3 &p, double ray_t = 0.0) const override {return color;}
 };
-
-#endif
