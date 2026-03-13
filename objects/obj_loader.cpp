@@ -27,12 +27,14 @@ std::vector <std::shared_ptr<Triangle>> load_obj_triangle(const std::string &pat
     if (m.illum == 3) {
       double fuzz = 1.0 - m.shininess / 1000.0;
       mats.push_back(std::make_shared<Metal>(tex, fuzz));
-    } else if (m.illum == 5 || m.illum == 7) {
+    } 
+    
+    else if (m.illum == 5 || m.illum == 7) {
       double dissolve = m.dissolve; // 1.0 = fully opaque, 0.0 = fully transparent
-      if (dissolve < 0.99) {
-        mats.push_back(std::make_shared<Dielectric>(m.ior > 0 ? m.ior : 1.5, 
-                      std::make_shared<SolidColor>(Vec3(m.transmittance[0], m.transmittance[1], m.transmittance[2]))));
-    } else {
+      if (dissolve < 0.99) mats.push_back(std::make_shared<Dielectric>(m.ior > 0 ? m.ior : 1.5, std::make_shared<SolidColor>(Vec3(m.transmittance[0], m.transmittance[1], m.transmittance[2]))));
+    } 
+    
+    else {
       mats.push_back(std::make_shared<Lambertian>(tex));
     }
   }  

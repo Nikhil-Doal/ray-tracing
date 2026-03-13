@@ -49,21 +49,25 @@ int main() {
   auto mat4 = std::make_shared<Metal>(std::make_shared<SolidColor>(Vec3(1.0, 1.0, 1.0)), 0.0);
   auto mat5 = std::make_shared<Lambertian>(std::make_shared<ImageTexture>("../assets/earth.png"));
 
-  world.add(std::make_shared<Plane>(Vec3(0, -2, 0), Vec3(0,1,0), mat1));
+  world.add(std::make_shared<Plane>(Vec3(0, 0, 0), Vec3(0,1,0), mat1));
 
   auto obj_list = std::make_shared<HittableList>();
-  auto triangles = load_obj_triangle("../assets/grass/10450_Rectangular_Grass_Patch_v1_iterations-2.obj", mat2, 0.1, Vec3(0,1,0));
+  auto triangles = load_obj_triangle("../assets/models/bunny.obj", mat2, 100, Vec3(0 ,-3.331,0));
   for (auto t : triangles)
       obj_list -> add(t);  
-
   auto obj_bvh = std::make_shared<BVHNode>(obj_list->objects, 0, obj_list->objects.size());
-  world.add(std::make_shared<Rotate>(obj_bvh, 90, 0, 0));
+    world.add(std::make_shared<Rotate>(obj_bvh, 0, 0, 0));
   BVHNode world_bvh(world.objects, 0, world.objects.size());
-  
+
+  AABB debug_box;
+  obj_bvh->bounding_box(debug_box);
+  std::cout << "Mesh min: " << debug_box.minimum.x << " " << debug_box.minimum.y << " " << debug_box.minimum.z << "\n";
+  std::cout << "Mesh max: " << debug_box.maximum.x << " " << debug_box.maximum.y << " " << debug_box.maximum.z << "\n";
+
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(30, 30, 30);
-  Vec3 lookat(0, 5, 0);
+  Vec3 lookfrom(0, 5, 20);
+  Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
   double aperture = 0.0;
