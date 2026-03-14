@@ -17,7 +17,7 @@
 #include "../materials/metal.h"
 #include "../materials/dielectric.h"
 #include "../core/camera.h"
-// #include "../utils/random_scene.h"
+#include "../utils/random_scene.h"
 #include "../objects/bvh_node.h"
 #include "../objects/obj_loader.h"
 #include "../renderer/renderer.h"
@@ -86,9 +86,7 @@ int main() {
   // Storing pixels in frame buffer
   std::vector<Vec3> framebuffer(width * height);
 
-  for (int i = 0; i < samples_per_pixel; ++i) {
-    // Rendering pixels
-    render_image(width, height, 1, max_depth, camera, world_bvh, lights, framebuffer);
-    save_png("../image.png", width, height, framebuffer, i);
-  }
+  render_image(width, height, samples_per_pixel, max_depth, camera, world_bvh, lights, framebuffer);
+  save_png("../image.png", width, height, framebuffer, samples_per_pixel);
+
 }

@@ -2,11 +2,15 @@
 #include <memory>
 #include <thread>
 #include <vector>
+#include <atomic>
 #include "../core/camera.h"
 #include "../core/hittable.h"
 #include "../lights/light.h"
 
 using LightList = std::vector<std::shared_ptr<Light>>;
+struct Tile {
+  int x, y, w, h;
+};
 
 inline double power_heuristic(double pdf_a, double pdf_b) {
     double a2 = pdf_a * pdf_a;
@@ -96,14 +100,14 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
 
     if (bsdf_pdf <= 0) {
       result = result + ray_color(scattered, world, lights, depth - 1, -1.0) * attenuation;
-    } else {
+    } 
+    else {
       // diffuse — pass bsdf_pdf for MIS weighting downstream
-      double cos_theta = rec.normal.dot(scattered.direction.normalize());
-      if (cos_theta > 0) {
-        Vec3 indirect = ray_color(scattered, world, lights, depth - 1, bsdf_pdf) * attenuation;
-        // cos_theta / bsdf_pdf = 1 for Lambertian but kept explicit for other BSDFs
-        result = result + indirect * (cos_theta / bsdf_pdf);
-      }
+      // double cos_theta = rec.normal.dot(scattered.direction.normalize());
+      // if (cos_theta > 0) {
+      Vec3 indirect = ray_color(scattered, world, lights, depth - 1, bsdf_pdf) * attenuation;
+      // cos_theta / bsdf_pdf = 1 for Lambertian but kept explicit for other BSDFs
+      result = result + indirect;
     }
     return result;
   }
@@ -130,18 +134,43 @@ inline void render_rows(int start_row, int end_row, int width, int height, int s
   }
 }
 
+inline void render_tile(const Tile &tile, int img_width, int img_height, int max_depth, const Camera &camera, const Hittable &world, const LightList &lights, std::vector<Vec3> &framebuffer) {
+  for (int j = tile.y; j < tile.y + tile.h; ++j) {
+    for (int i = tile.x; i < tile.x + tile.w; ++i) {
+      if (i >= img_width || j >= img_height) continue;
+      double u = (i + random_double()) / (img_width - 1);
+      double v = (j + random_double()) / (img_height - 1);
+      Ray ray = camera.get_ray(u, v);
+      framebuffer[j*img_width + i] = framebuffer[j*img_width + i] + ray_color(ray, world, lights, max_depth, -1.0);
+    }
+  }
+}
+
 inline void render_image(int width, int height, int samples_per_pixel, int max_depth, const Camera &camera, const Hittable &world, const LightList &lights, std::vector<Vec3> &framebuffer) {
+  constexpr int TILE_SIZE = 64;
+  std::vector<Tile> tiles;
+
+  for (int ty = 0; ty < height; ty += TILE_SIZE) {
+    for (int tx = 0; tx < width; tx += TILE_SIZE) tiles.push_back({tx, ty, std::min(TILE_SIZE, width - tx), std::min(TILE_SIZE, height - ty)});
+  }
+
+  // atomic index into tile list — threads grab next tile when done
+  std::atomic<int> next_tile{0};
+  int total_tiles = (int)tiles.size();
+  
   int thread_count = std::thread::hardware_concurrency();
   std::vector<std::thread> threads;
 
-  int rows_per_thread = height / thread_count;
   for (int t = 0; t < thread_count; ++t) {
-    int start = t * rows_per_thread;
-    int end = (t == thread_count - 1) ? height : start + rows_per_thread;
-    threads.emplace_back(render_rows, start, end, width, height, samples_per_pixel, max_depth, std::ref(camera), std::ref(world), std::ref(lights), std::ref(framebuffer));
+    threads.emplace_back([&]() {
+      while (true)
+      {
+        int index = next_tile.fetch_add(1);
+        if (index >= total_tiles) break;
+
+        for(int s = 0; s < samples_per_pixel; ++s) render_tile(tiles[index], width, height, max_depth, camera, world, lights, framebuffer);
+      }
+    });  
   }
-  
-  for (auto &t :threads) {
-    t.join();
-  }
+  for (auto &t :threads) t.join();
 }
