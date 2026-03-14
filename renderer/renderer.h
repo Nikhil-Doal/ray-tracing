@@ -43,9 +43,7 @@ inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable
     }
 
     // get surface attenuation
-    Vec3 attenuation(1,1,1);
-    Ray scattered_dummy;
-    if (rec.mat) rec.mat->scatter(ray_in, rec, attenuation, scattered_dummy);
+    Vec3 attenuation = rec.mat ? rec.mat->albedo_at(rec) : Vec3(1,1,1);
 
     // BSDF pdf for this light direction, to be used as MIS weight
     Ray to_light_ray(rec.point, to_light_dir);
@@ -88,9 +86,7 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
       return Le * mis_weight;
     }
 
-
     // for non-emissive hitlist
-
     if (!rec.mat->scatter(r, rec, attenuation, scattered)) return Vec3(0,0,0);
     Vec3 result(0,0,0);
 
@@ -103,8 +99,6 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
     } 
     else {
       // diffuse — pass bsdf_pdf for MIS weighting downstream
-      // double cos_theta = rec.normal.dot(scattered.direction.normalize());
-      // if (cos_theta > 0) {
       Vec3 indirect = ray_color(scattered, world, lights, depth - 1, bsdf_pdf) * attenuation;
       // cos_theta / bsdf_pdf = 1 for Lambertian but kept explicit for other BSDFs
       result = result + indirect;

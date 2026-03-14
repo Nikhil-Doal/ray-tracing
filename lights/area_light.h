@@ -50,7 +50,9 @@ public:
     if (discriminant < 0) return 0.0;
 
     // solid angle pdf
-    double cos_theta_max = sqrt(1.0 - radius*radius / oc.dot(oc));
+    double val = 1.0 - radius*radius / oc.dot(oc);
+    if (val <= 0) return 0.0; // inside or on sphere surface
+    double cos_theta_max = sqrt(val);
     double solid_angle = 2.0 * PI * (1.0 - cos_theta_max);
     return 1.0 / solid_angle;
   }

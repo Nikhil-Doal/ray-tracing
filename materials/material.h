@@ -11,4 +11,5 @@ public:
   virtual Vec3 emit(double u, double v, const Vec3 &point) const { return Vec3(0,0,0); }
   virtual bool is_transmissive() const { return false; }
   virtual bool is_emissive() const { return false; }
+  virtual Vec3 albedo_at(const HitRecord &rec) const { return Vec3(1,1,1); }
 };

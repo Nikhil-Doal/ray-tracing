@@ -15,4 +15,7 @@ public:
     double cos_theta = rec.normal.dot(scattered.direction.normalize());
     return cos_theta < 0 ? 0.0 : cos_theta / PI;
   }
+  Vec3 albedo_at(const HitRecord &rec) const override {
+    return albedo->value(rec.u, rec.v, rec.point, rec.t);
+  }
 };
