@@ -11,4 +11,8 @@ public:
   std::shared_ptr<Texture> albedo;
   Lambertian (std::shared_ptr<Texture> a);
   bool scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const override;
+  double scattering_pdf(const Ray &ray_in, const HitRecord &rec, const Ray &scattered) const override {
+    double cos_theta = rec.normal.dot(scattered.direction.normalize());
+    return cos_theta < 0 ? 0.0 : cos_theta / PI;
+  }
 };

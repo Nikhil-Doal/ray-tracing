@@ -27,9 +27,10 @@
 #include "../lights/point_light.h"
 #include "../lights/directional_light.h"
 #include "../objects/rotate.h"
+#include "../materials/diffuse_light.h"
+#include "../lights/area_light.h"
 #include <memory>
  
-
 int main() {
   int width = 1080;
   int height = 720;
@@ -40,23 +41,31 @@ int main() {
   HittableList world;
   LightList lights;
 
-  // lights.push_back(std::make_shared<PointLight>(Vec3(-20, 20, 20), Vec3(1,1,1), 100.0));
-  lights.push_back(std::make_shared<DirectionalLight>(Vec3(-1,1,1), Vec3(1,1,1), 1));
-
+  
   auto mat1 = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(1, 0, 0)));
   auto mat2 = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(0, 1, 0) * 0.2));
   auto mat3 = std::make_shared<Dielectric>(1.5, std::make_shared<SolidColor>(Vec3(1,1,1)));
   auto mat4 = std::make_shared<Metal>(std::make_shared<SolidColor>(Vec3(1.0, 1.0, 1.0)), 0.0);
   auto mat5 = std::make_shared<Lambertian>(std::make_shared<ImageTexture>("../assets/earth.png"));
-
+  
   world.add(std::make_shared<Plane>(Vec3(0, 0, 0), Vec3(0,1,0), mat1));
-
+  
   auto obj_list = std::make_shared<HittableList>();
   auto triangles = load_obj_triangle("../assets/models/bunny.obj", mat2, 100, Vec3(0 ,-3.331,0));
   for (auto t : triangles)
-      obj_list -> add(t);  
+  obj_list -> add(t);  
   auto obj_bvh = std::make_shared<BVHNode>(obj_list->objects, 0, obj_list->objects.size());
-    world.add(std::make_shared<Rotate>(obj_bvh, 0, 0, 0));
+  world.add(std::make_shared<Rotate>(obj_bvh, 0, 0, 0));
+  
+  
+  //lights
+  auto light_mat = std::make_shared<DiffuseLight>(Vec3(1.0, 0.9, 0.7) * 10.0);  
+  world.add(std::make_shared<Sphere>(Vec3(0,15,0), 3.0, light_mat));
+  lights.push_back(std::make_shared<SphereAreaLight>(Vec3(0,15,0), 3.0, Vec3(1.0, 0.9, 0.7), 10.0));
+  
+  // lights.push_back(std::make_shared<PointLight>(Vec3(-20, 20, 20), Vec3(1,1,1), 100.0));
+  lights.push_back(std::make_shared<DirectionalLight>(Vec3(-1,1,1), Vec3(1,1,1), 1));
+  
   BVHNode world_bvh(world.objects, 0, world.objects.size());
 
   AABB debug_box;
@@ -66,7 +75,7 @@ int main() {
 
   // Camera setup
   double aspect_ratio = double(width)/height;
-  Vec3 lookfrom(0, 5, 20);
+  Vec3 lookfrom(0, 10, 20);
   Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   double focus_dist = (lookfrom - lookat).norm();
