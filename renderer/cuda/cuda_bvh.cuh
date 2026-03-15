@@ -84,7 +84,8 @@ inline void collect_primitives(const Hittable *node, std::vector<GpuPrimitive> &
   if (!node) return;
   if (auto *bvh = dynamic_cast<const BVHNode*>(node)) {
     collect_primitives(bvh->left.get(), primitives, mat_map, mats);
-    collect_primitives(bvh->right.get(), primitives, mat_map, mats);
+    if (bvh->right.get() != bvh->left.get())
+      collect_primitives(bvh->right.get(), primitives, mat_map, mats);
   }
   else if (auto *list = dynamic_cast<const HittableList*>(node)) {
     for (auto &obj : list -> objects) collect_primitives(obj.get(), primitives, mat_map, mats);
@@ -146,6 +147,11 @@ inline int build_flat_bvh_recursive(std::vector<GpuPrimitive> &primitives, std::
       node.aabb_max.z = fmaxf(fmaxf(node.aabb_max.z, t.v0.z), fmaxf(t.v1.z, t.v2.z));
     }
   }
+
+  const float PAD = 1e-3f;
+  if (node.aabb_max.x - node.aabb_min.x < PAD) { node.aabb_min.x -= PAD; node.aabb_max.x += PAD; }
+  if (node.aabb_max.y - node.aabb_min.y < PAD) { node.aabb_min.y -= PAD; node.aabb_max.y += PAD; }
+  if (node.aabb_max.z - node.aabb_min.z < PAD) { node.aabb_min.z -= PAD; node.aabb_max.z += PAD; }
 
   if (end - start == 1) {
     // these are the tree leafs

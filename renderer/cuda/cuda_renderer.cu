@@ -156,7 +156,7 @@ __device__ bool mat_scatter(const GpuMaterial &mat, const GpuRay &ray_in, const 
     // cosine weighted direction
     GpuVec3 d = rand_cosine_direction(rng);
     GpuVec3 dir = u*d.x + v*d.y + w*d.z;
-    scattered   = {rec.point + rec.normal * 1e-4f, dir};
+    scattered   = {rec.point + rec.normal * 1e-3f, dir};
     attenuation = mat.albedo;
     return true;
   } 
@@ -230,7 +230,7 @@ __device__ GpuVec3 direct_light(const GpuScene &scene, const GpuHitRecord &rec, 
     float   light_pdf;
 
     if (light.type == GpuLightType::DIRECTIONAL) {
-      to_light_dir = light.direction;
+      to_light_dir = light.direction * -1.0f;
       dist = 1e6f;
       emission = light.color * light.intensity;
       light_pdf = 1.0f;
@@ -255,7 +255,7 @@ __device__ GpuVec3 direct_light(const GpuScene &scene, const GpuHitRecord &rec, 
     if (cos_theta <= 0.0f) continue;
 
     // shadow ray
-    GpuRay shadow{rec.point + rec.normal * 1e-4f, to_light_dir};
+    GpuRay shadow{rec.point + rec.normal * 1e-3f, to_light_dir};
     GpuHitRecord shadow_rec{};
     if (bvh_hit(scene, shadow, 0.001f, dist - 0.01f, shadow_rec)) {
       if (!scene.materials[shadow_rec.mat_id].is_emissive) continue;
