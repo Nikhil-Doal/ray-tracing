@@ -4,9 +4,8 @@
 #include "../core/ray.h"
 #include "../core/hittable.h"
 #include "../utils/sampling_utils.h"
+#include "../textures/texture.h"
 #include <memory>
-
-class Texture;
 
 class Metal : public Material {
 public:

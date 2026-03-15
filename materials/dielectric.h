@@ -1,10 +1,9 @@
 #pragma once
 #include "material.h"
+#include "../textures/texture.h"
 #include <memory>
 
 double reflectance(double cosine, double ref_idx);
-
-class Texture;
 
 class Dielectric : public Material {
 public:

@@ -1,25 +1,16 @@
-cmake_minimum_required(VERSION 3.10)
- 
-# Force g++ before project() locks in the compiler
-if(NOT DEFINED CMAKE_CXX_COMPILER)
-  set(CMAKE_CXX_COMPILER "g++")
-endif()
- 
-project(raytracer)
- 
+cmake_minimum_required(VERSION 3.18)
+
+project(raytracer LANGUAGES CXX)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
- 
-# Release build flags
+
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
- 
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native")
-set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra")
- 
-add_executable(render
-    src/main.cpp
+
+# ---- shared source files ----
+set(SHARED_SOURCES
     core/vec3.cpp
     core/ray.cpp
     core/camera.cpp
@@ -34,10 +25,61 @@ add_executable(render
     materials/dielectric.cpp
     textures/image_texture.cpp
 )
- 
-# So includes like "../core/vec3.h" resolve correctly
+
+# ---- CPU target ----
+add_executable(render
+    src/main.cpp
+    ${SHARED_SOURCES}
+)
 target_include_directories(render PRIVATE .)
- 
-# Link threads for std::thread in renderer.h
+target_compile_options(render PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/O2 /W3>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O3 -march=native>
+)
 find_package(Threads REQUIRED)
 target_link_libraries(render PRIVATE Threads::Threads)
+
+# ---- CUDA target ----
+include(CheckLanguage)
+check_language(CUDA)
+
+if(CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+    set(CMAKE_CUDA_STANDARD 17)
+
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES 86)
+    endif()
+
+    add_executable(render_cuda
+        src/main_cuda.cu
+        renderer/cuda/cuda_renderer.cu
+        ${SHARED_SOURCES}
+    )
+
+    target_include_directories(render_cuda PRIVATE .)
+
+    set_target_properties(render_cuda PROPERTIES
+        CUDA_SEPARABLE_COMPILATION ON
+    )
+
+    target_compile_options(render_cuda PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:
+            --use_fast_math
+            --expt-relaxed-constexpr
+        >
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:
+            /O2 /W3
+        >
+    )
+
+    target_link_libraries(render_cuda PRIVATE
+        Threads::Threads
+        curand
+    )
+
+    message(STATUS "CUDA ${CMAKE_CUDA_VERSION} found — render_cuda target enabled")
+    message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
+else()
+    message(STATUS "CUDA not found — only CPU render available")
+endif()
