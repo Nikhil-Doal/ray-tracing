@@ -371,19 +371,38 @@ __global__ void render_kernel(float *fb, int width, int height, int samples, int
   curandState rng;
   curand_init((unsigned long long) pixel + 1, 0, 0, &rng);
 
-  GpuVec3 color(0,0,0);
+  // Welford online mean and variance algorithm for adaptive sampling
+  GpuVec3 mean(0,0,0);
+  GpuVec3 M2(0,0,0); // sum deviation^2
+  int n = 0;
+
+  const int MIN_SAMPLES = 16;
+  const int CHECK_EVERY = 4;
+  const float THRESHOLD = 0.01f;
+
   for (int s = 0; s < samples; ++s) {
     float u = (x + curand_uniform(&rng)) / (float)(width - 1);
     float v = (y + curand_uniform(&rng)) / (float)(height - 1);
     GpuRay ray = get_camera_ray(camera, u, v, &rng);
-    color = color + ray_color(ray, scene, max_depth, &rng);
-  }
-  color = color * (1.0f / samples);
+    GpuVec3 color = ray_color(ray, scene, max_depth, &rng);
 
+    // welford algorithm
+    n++;
+    GpuVec3 delta = color - mean;
+    mean = mean + delta * (1.0f / n);
+    GpuVec3 delta2 = color - mean;
+    M2 = M2 + GpuVec3(delta.x*delta2.x, delta.y*delta2.y, delta.z*delta2.z);
+
+    if (n >= MIN_SAMPLES && (n % CHECK_EVERY == 0)) {
+      GpuVec3 variance = M2 * (1.0f / n);
+      if (variance.x < THRESHOLD && variance.y < THRESHOLD && variance.z < THRESHOLD) break;
+    }
+  }
+  
   // gamma correction
-  fb[pixel*3+0] = sqrtf(fmaxf(0.0f, color.x));
-  fb[pixel*3+1] = sqrtf(fmaxf(0.0f, color.y));
-  fb[pixel*3+2] = sqrtf(fmaxf(0.0f, color.z));
+  fb[pixel*3+0] = fmaxf(0.0f, mean.x);
+  fb[pixel*3+1] = fmaxf(0.0f, mean.y);
+  fb[pixel*3+2] = fmaxf(0.0f, mean.z);
 }
 
 

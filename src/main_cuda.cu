@@ -70,7 +70,7 @@ int main() {
   int samples_per_pixel = 10;
   int max_depth = 20;
 
-  // ---- build scene (identical to CPU main.cpp) ----
+  // build scene (identical to CPU main.cpp)
   HittableList world;
   LightList    lights;
 
@@ -114,7 +114,6 @@ int main() {
 
   std::vector<GpuLight> gpu_lights = convert_lights(lights);
 
-  // assemble GpuScene (host pointers — cuda_render uploads them)
   GpuScene host_scene{};
   host_scene.primitives = flat.primitives.data();
   host_scene.num_primitives = (int)flat.primitives.size();
@@ -133,17 +132,14 @@ int main() {
   params.max_depth = max_depth;
   params.camera = convert_camera(camera);
 
-  // ---- render on GPU ----
   std::cout << "Rendering on GPU...\n";
   std::vector<float> fb;
   cuda_render(params, host_scene, gpu_lights, fb);
 
-  // ---- save image ----
-  // fb is already gamma corrected — convert to Vec3 framebuffer
-  // pass samples=1 to avoid double division in save_png
+
   std::vector<Vec3> framebuffer(width * height);
   for (int i = 0; i < width * height; ++i)
-    framebuffer[i] = Vec3(fb[i*3+0]*fb[i*3+0], fb[i*3+1]*fb[i*3+1], fb[i*3+2]*fb[i*3+2]);
+    framebuffer[i] = Vec3(fb[i*3+0], fb[i*3+1], fb[i*3+2]);
 
   save_png("../../image_cuda.png", width, height, framebuffer, 1);
   std::cout << "Saved image_cuda.png\n";
