@@ -86,10 +86,15 @@ int main() {
   world.add(t2);
 
   auto obj_list = std::make_shared<HittableList>();
-  auto triangles = load_obj_triangle("../../assets/models/bunny.obj", mat2, 100, Vec3(0,-3.331,0));
+  auto triangles = load_obj_triangle("../../assets/models/grass/Untitled.obj", mat2, 0.5, Vec3(0,0,0));
   for (auto t : triangles) obj_list->add(t);
   auto obj_bvh = std::make_shared<BVHNode>(obj_list->objects, 0, obj_list->objects.size());
   world.add(std::make_shared<Rotate>(obj_bvh, 0, 0, 0));
+
+  AABB debug_box;
+  obj_bvh->bounding_box(debug_box);
+  std::cout << "Mesh min: " << debug_box.minimum.x << " " << debug_box.minimum.y << " " << debug_box.minimum.z << "\n";
+  std::cout << "Mesh max: " << debug_box.maximum.x << " " << debug_box.maximum.y << " " << debug_box.maximum.z << "\n";
 
   auto light_mat = std::make_shared<DiffuseLight>(Vec3(1.0, 0.9, 0.7) * 10.0);
   world.add(std::make_shared<Sphere>(Vec3(0,15,0), 3.0, light_mat));
@@ -103,7 +108,7 @@ int main() {
 
   // camera
   double aspect = double(width) / height;
-  Vec3 lookfrom(0, 10, 20);
+  Vec3 lookfrom(0, 20, 30);
   Vec3 lookat(0, 0, 0);
   Vec3 vup(0, 1, 0);
   Camera camera(lookfrom, lookat, vup, 90, aspect, 0.0, (lookfrom - lookat).norm());
@@ -124,6 +129,10 @@ int main() {
   host_scene.num_materials = (int)flat.materials.size();
   host_scene.lights = nullptr; // uploaded separately
   host_scene.num_lights = (int)gpu_lights.size();
+  // textures
+  host_scene.tex_data      = flat.tex_data.empty()  ? nullptr : flat.tex_data.data();
+  host_scene.textures      = flat.textures.empty()  ? nullptr : flat.textures.data();
+  host_scene.num_textures  = (int)flat.textures.size();
 
   CudaRenderParams params{};
   params.width = width;

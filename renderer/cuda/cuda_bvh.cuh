@@ -2,7 +2,6 @@
 #include "cuda_scene.cuh"
 #include <vector>
 #include <unordered_map>
-#include <functional>
 #include <algorithm>
 #include "../../core/hittable.h"
 #include "../../objects/bvh_node.h"
@@ -15,25 +14,63 @@
 #include "../../materials/metal.h"
 #include "../../materials/dielectric.h"
 #include "../../materials/diffuse_light.h"
+#include "../../textures/texture.h"
+#include "../../textures/solid_color.h"
+#include "../../textures/image_texture.h"
 
 // result of flattening the cpu scene - holds host_side arrays to upload to gpu if availible
 struct FlatScene{
   std::vector<GpuPrimitive> primitives;
   std::vector<GpuBVHNode> bvh_nodes;
   std::vector<GpuMaterial> materials;
+  std::vector<GpuTexture> textures;
+  std::vector<unsigned char> tex_data;
   int root = 0;
 };
 
+// texture helpers
+inline int register_texture(Texture *tex, std::unordered_map<Texture*, int> &tex_map, std::vector<GpuTexture> &textures, std::vector<unsigned char> &tex_data) {
+  if (!tex) return -1;
+
+  // Only ImageTexture gets real texture data, keep SolidColor stays as solid color.
+  auto *img = dynamic_cast<ImageTexture*>(tex);
+  if (!img || !img->data || img->width <= 0 || img->height <= 0) return -1;
+
+  auto it = tex_map.find(tex);
+  if (it != tex_map.end()) return it->second;
+
+  int id = (int)textures.size();
+  tex_map[tex] = id;
+
+  GpuTexture gt;
+  gt.offset = (int)(tex_data.size() / 3);  // pixel offset
+  gt.width  = img->width;
+  gt.height = img->height;
+  textures.push_back(gt);
+
+  // Append raw RGB bytes.  stbi loads 3 channels (we request 3 in ImageTexture).
+  int num_pixels = img->width * img->height;
+  size_t byte_count = num_pixels * 3;
+  size_t old_size = tex_data.size();
+  tex_data.resize(old_size + byte_count);
+  std::memcpy(tex_data.data() + old_size, img->data, byte_count);
+
+  return id;
+}
 
 // convert cpu Material * to a GpuMaterial
-inline GpuMaterial convert_material(Material *mat) {
+inline GpuMaterial convert_material(Material *mat, std::unordered_map<Texture*, int> &tex_map, std::vector<GpuTexture> &textures, std::vector<unsigned char> &tex_data) {
   GpuMaterial m{};
   m.is_emissive = mat->is_emissive();
   m.is_transmissive = mat->is_transmissive();
+  m.albedo_tex_id   = -1;
+  m.emit_tex_id     = -1;
 
   if (auto *lamb = dynamic_cast<Lambertian*>(mat)) {
     m.type = GpuMatType::LAMBERTIAN;
-    // using dummy HitRecord
+    //try to register texture
+    m.albedo_tex_id = register_texture(lamb->albedo.get(), tex_map, textures, tex_data);
+    // using dummy HitRecord as fallback
     HitRecord dummy{};
     Vec3 a = lamb -> albedo_at(dummy);
     m.albedo = {(float)a.x, (float)a.y, (float)a.z};
@@ -41,6 +78,7 @@ inline GpuMaterial convert_material(Material *mat) {
   
   else if (auto *met = dynamic_cast<Metal*>(mat)) {
     m.type = GpuMatType::METAL;
+    m.albedo_tex_id = register_texture(met->albedo.get(), tex_map, textures, tex_data);
     HitRecord dummy{};
     Vec3 a = met->albedo_at(dummy);
     m.albedo = {(float)a.x, (float)a.y, (float)a.z};
@@ -55,8 +93,16 @@ inline GpuMaterial convert_material(Material *mat) {
 
   else if (mat->is_emissive()) {
     m.type = GpuMatType::DIFFUSE_LIGHT;
-    Vec3 e = mat->emit(0, 0, Vec3(0,0,0));
-    m.emit_color  = {(float)e.x, (float)e.y, (float)e.z};
+
+    if (auto *dl = dynamic_cast<DiffuseLight*>(mat)) {
+      m.emit_tex_id = register_texture(dl->emit_tex.get(), tex_map, textures, tex_data);
+      // Solid fallback
+      Vec3 e = dl->emit_tex ? dl->emit_tex->value(0, 0, Vec3(0,0,0)) : Vec3(0,0,0);
+      m.emit_color = {(float)e.x, (float)e.y, (float)e.z};
+    } else {
+      Vec3 e = mat->emit(0, 0, Vec3(0,0,0));
+      m.emit_color = {(float)e.x, (float)e.y, (float)e.z};
+    }
     m.is_emissive = true;
   }
 
@@ -70,36 +116,36 @@ inline GpuMaterial convert_material(Material *mat) {
 }
 
 // get or add a material and return its index
-inline int get_or_add_material(Material *mat, std::unordered_map<Material*, int> &mat_map, std::vector<GpuMaterial> &mats) {
+inline int get_or_add_material(Material *mat, std::unordered_map<Material*, int> &mat_map, std::vector<GpuMaterial> &mats, std::unordered_map<Texture*, int> &tex_map, std::vector<GpuTexture> &textures, std::vector<unsigned char> &tex_data) {
   auto it = mat_map.find(mat);
   if (it != mat_map.end()) return it -> second;
   int id = (int) mats.size();
-  mats.push_back(convert_material(mat));
+  mats.push_back(convert_material(mat, tex_map, textures, tex_data));
   mat_map[mat] = id;
   return id;
 }
 
 // Recursively collect all primitives frm CPU hittable tree into flat array handling BVHNode, HittableList, Sphere, Triangle
-inline void collect_primitives(const Hittable *node, std::vector<GpuPrimitive> &primitives, std::unordered_map<Material*, int> &mat_map, std::vector<GpuMaterial> &mats) {
+inline void collect_primitives( const Hittable *node, std::vector<GpuPrimitive> &primitives, std::unordered_map<Material*, int> &mat_map, std::vector<GpuMaterial> &mats, std::unordered_map<Texture*, int>  &tex_map, std::vector<GpuTexture> &textures, std::vector<unsigned char> &tex_data) {
   if (!node) return;
   if (auto *bvh = dynamic_cast<const BVHNode*>(node)) {
-    collect_primitives(bvh->left.get(), primitives, mat_map, mats);
+    collect_primitives(bvh->left.get(), primitives, mat_map, mats, tex_map, textures, tex_data);
     if (bvh->right.get() != bvh->left.get())
-      collect_primitives(bvh->right.get(), primitives, mat_map, mats);
+      collect_primitives(bvh->right.get(), primitives, mat_map, mats, tex_map, textures, tex_data);
   }
   else if (auto *list = dynamic_cast<const HittableList*>(node)) {
-    for (auto &obj : list -> objects) collect_primitives(obj.get(), primitives, mat_map, mats);
+    for (auto &obj : list -> objects) collect_primitives(obj.get(), primitives, mat_map, mats, tex_map, textures, tex_data);
   }
   else if (auto *rot = dynamic_cast<const Rotate*>(node)){
     // not applying rotation right now, *just rotate all obj or item vertices for future
-    collect_primitives(rot->object.get(), primitives, mat_map, mats);
+    collect_primitives(rot->object.get(), primitives, mat_map, mats, tex_map, textures, tex_data);
   }
   else if (auto *sph = dynamic_cast<const Sphere*>(node)) {
     GpuPrimitive p{};
     p.type = GpuGeomType::SPHERE;
     p.sphere.center = {(float)sph->center.x, (float)sph->center.y, (float)sph->center.z};
     p.sphere.radius = (float)sph->radius;
-    p.mat_id = get_or_add_material(sph->mat.get(), mat_map, mats);
+    p.mat_id = get_or_add_material(sph->mat.get(), mat_map, mats, tex_map, textures, tex_data);
     primitives.push_back(p);
   } 
   else if (auto *tri = dynamic_cast<const Triangle*>(node)) {
@@ -111,10 +157,10 @@ inline void collect_primitives(const Hittable *node, std::vector<GpuPrimitive> &
     p.triangle.uv0 = {(float)tri->uv0.x, (float)tri->uv0.y, 0};
     p.triangle.uv1 = {(float)tri->uv1.x, (float)tri->uv1.y, 0};
     p.triangle.uv2 = {(float)tri->uv2.x, (float)tri->uv2.y, 0};
-    p.mat_id = get_or_add_material(tri->mat.get(), mat_map, mats);
+    p.mat_id = get_or_add_material(tri->mat.get(), mat_map, mats, tex_map, textures, tex_data);
     primitives.push_back(p);
   }
-  // skipping plane as difficult to handle infinite distance
+  // skipping plane as difficult to handle infinite distance : use 2 triangles instead
 }
 
 inline int build_flat_bvh_recursive(std::vector<GpuPrimitive> &primitives, std::vector<GpuBVHNode> &nodes, int start, int end) {
@@ -123,7 +169,7 @@ inline int build_flat_bvh_recursive(std::vector<GpuPrimitive> &primitives, std::
 
   GpuBVHNode &node = nodes[index];
 
-  // comput the AABB over primitives from start to end
+  // compute the AABB over primitives from start to end
   node.aabb_min = {1e30f, 1e30f, 1e30f};
   node.aabb_max = {-1e30f, -1e30f, -1e30f};
 
@@ -189,15 +235,16 @@ inline int build_flat_bvh_recursive(std::vector<GpuPrimitive> &primitives, std::
 inline FlatScene build_flat_scene(const Hittable &cpu_root) {
   FlatScene flat;
   std::unordered_map<Material*, int> mat_map;
+  std::unordered_map<Texture*,  int> tex_map;
 
   // collect all prims and mats
-  collect_primitives(&cpu_root, flat.primitives, mat_map, flat.materials);
+  collect_primitives(&cpu_root, flat.primitives, mat_map, flat.materials, tex_map, flat.textures, flat.tex_data);
   if (flat.primitives.empty()) {
     std::cerr << "no gpu prims collected";
     return flat;
   }
 
-  std::cout << "GPU scene: " << flat.primitives.size() << " primitives, " << flat.materials.size()  << " materials\n";
+  std::cout << "GPU scene: " << flat.primitives.size() << " primitives, " << flat.materials.size() << " materials, " << flat.textures.size() << " textures (" << flat.tex_data.size() / 1024 << " KB)\n";
 
   // build flat bvh over collected prims
   flat.bvh_nodes.reserve(flat.primitives.size() * 2);

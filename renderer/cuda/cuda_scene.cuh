@@ -34,6 +34,15 @@ struct GpuRay {
   __host__ __device__ GpuVec3 at(float t) const{ return origin + direction * t; }
 };
 
+// texture struct
+struct GpuTexture
+{
+  int offset;
+  int width;
+  int height;
+};
+
+
 // Material 
 enum class GpuMatType : uint8_t { LAMBERTIAN, METAL, DIELECTRIC, DIFFUSE_LIGHT }; // using class to keep scoped
 struct GpuMaterial {
@@ -44,6 +53,9 @@ struct GpuMaterial {
   GpuVec3 emit_color; // diffuse light emission color
   bool is_emissive;
   bool is_transmissive;
+
+  int albedo_tex_id;
+  int emit_tex_id;
 };
 
 enum class GpuGeomType : uint8_t { SPHERE, TRIANGLE };
@@ -119,4 +131,8 @@ struct GpuScene {
 
   GpuLight *lights;
   int num_lights;
+
+  unsigned char *tex_data;
+  GpuTexture *textures;
+  int num_textures;
 };

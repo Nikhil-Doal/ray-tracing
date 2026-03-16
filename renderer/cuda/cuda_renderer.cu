@@ -32,6 +32,47 @@ __device__ inline GpuVec3 rand_cosine_direction(curandState *s) {
   return {x, y, z};
 }
 
+// bilinear texture sampling
+__device__ GpuVec3 sample_texture(const GpuScene &scene, int tex_id, float u, float v, const GpuVec3 &solid_color) {
+  if (tex_id < 0 || tex_id >= scene.num_textures || !scene.tex_data) return solid_color;
+
+  const GpuTexture &tex = scene.textures[tex_id];
+  if (tex.width <= 0 || tex.height <= 0) return solid_color;
+
+  // Clamp UV
+  u = u < 0.0f ? 0.0f : (u > 1.0f ? 1.0f : u);
+  v = 1.0f - (v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v)); // flip V (stb origin = top-left)
+
+  float fi = u * (tex.width  - 1);
+  float fj = v * (tex.height - 1);
+  int i0 = (int)fi;
+  int j0 = (int)fj;
+  int i1 = i0 + 1 < tex.width  ? i0 + 1 : i0;
+  int j1 = j0 + 1 < tex.height ? j0 + 1 : j0;
+  float tx = fi - i0;
+  float ty = fj - j0;
+
+  const unsigned char *base = scene.tex_data + tex.offset * 3;
+
+  auto get = [&](int ii, int jj) -> GpuVec3 {
+    const unsigned char *p = base + (jj * tex.width + ii) * 3;
+    // sRGB → linear (approx gamma 2.2)
+    float r = __powf(p[0] / 255.0f, 2.2f);
+    float g = __powf(p[1] / 255.0f, 2.2f);
+    float b = __powf(p[2] / 255.0f, 2.2f);
+    return {r, g, b};
+  };
+
+  GpuVec3 c00 = get(i0, j0);
+  GpuVec3 c10 = get(i1, j0);
+  GpuVec3 c01 = get(i0, j1);
+  GpuVec3 c11 = get(i1, j1);
+
+  GpuVec3 c0 = c00*(1-tx) + c10*tx;
+  GpuVec3 c1 = c01*(1-tx) + c11*tx;
+  return c0*(1-ty) + c1*ty;
+}
+
 // AABB hit test
 __device__ bool aabb_hit(const GpuBVHNode &node, const GpuRay &ray, float t_min, float t_max) {
   for (int i = 0; i < 3; ++i) {
@@ -146,7 +187,8 @@ __device__ bool bvh_hit(const GpuScene &scene, const GpuRay &ray, float t_min, f
   return hit_anything;
 }
 
-__device__ bool mat_scatter(const GpuMaterial &mat, const GpuRay &ray_in, const GpuHitRecord &rec, GpuVec3 &attenuation, GpuRay &scattered, curandState *rng) {
+// check for scatter based on material
+__device__ bool mat_scatter(const GpuScene &scene, const GpuMaterial &mat, const GpuRay &ray_in, const GpuHitRecord &rec, GpuVec3 &attenuation, GpuRay &scattered, curandState *rng) {
   if (mat.type == GpuMatType::LAMBERTIAN) {
     // build ONB around normal
     GpuVec3 w = rec.normal;
@@ -156,33 +198,32 @@ __device__ bool mat_scatter(const GpuMaterial &mat, const GpuRay &ray_in, const 
     // cosine weighted direction
     GpuVec3 d = rand_cosine_direction(rng);
     GpuVec3 dir = u*d.x + v*d.y + w*d.z;
-    scattered   = {rec.point + rec.normal * 1e-3f, dir};
-    attenuation = mat.albedo;
+    scattered = {rec.point + rec.normal * 1e-3f, dir};
+    attenuation = sample_texture(scene, mat.albedo_tex_id, rec.u, rec.v, mat.albedo);
     return true;
   } 
   
   else if (mat.type == GpuMatType::METAL) {
     GpuVec3 unit = ray_in.direction.normalize();
-    float   d    = unit.dot(rec.normal);
+    float d = unit.dot(rec.normal);
     GpuVec3 refl = unit - rec.normal * (2.0f * d);
     GpuVec3 fuzz = rand_in_unit_sphere(rng) * mat.fuzz;
-    scattered    = {rec.point + rec.normal * 1e-4f, refl + fuzz};
-    attenuation  = mat.albedo;
+    scattered = {rec.point + rec.normal * 1e-4f, refl + fuzz};
+    attenuation = sample_texture(scene, mat.albedo_tex_id, rec.u, rec.v, mat.albedo);
     return scattered.direction.dot(rec.normal) > 0;
   } 
   
   else if (mat.type == GpuMatType::DIELECTRIC) {
-    attenuation  = {1,1,1};
-    float ratio  = rec.front_face ? (1.0f/mat.ir) : mat.ir;
+    attenuation = {1,1,1};
+    float ratio = rec.front_face ? (1.0f/mat.ir) : mat.ir;
     GpuVec3 unit = ray_in.direction.normalize();
-    float cos_t  = fminf(-unit.dot(rec.normal), 1.0f);
-    float sin_t  = sqrtf(1.0f - cos_t*cos_t);
-    bool cannot  = ratio * sin_t > 1.0f;
+    float cos_t = fminf(-unit.dot(rec.normal), 1.0f);
+    float sin_t = sqrtf(1.0f - cos_t*cos_t);
+    bool cannot = ratio * sin_t > 1.0f;
     // Schlick approximation
     float r0 = (1-ratio)/(1+ratio); r0 = r0*r0;
     float refl = r0 + (1-r0)*powf(1-cos_t, 5);
     GpuVec3 dir;
-
     if (cannot || refl > rand_f(rng)) dir = unit - rec.normal * (2.0f * unit.dot(rec.normal));
     else {
     GpuVec3 perp = (unit + rec.normal * cos_t) * ratio;
@@ -261,11 +302,11 @@ __device__ GpuVec3 direct_light(const GpuScene &scene, const GpuHitRecord &rec, 
       if (!scene.materials[shadow_rec.mat_id].is_emissive) continue;
     }
 
-    GpuVec3 attenuation = mat.albedo;
+    GpuVec3 attenuation = sample_texture(scene, mat.albedo_tex_id, rec.u, rec.v, mat.albedo);
 
     // MIS weight
     GpuRay to_light_ray{rec.point, to_light_dir};
-    float bsdf_pdf  = scattering_pdf(mat, rec, to_light_ray);
+    float bsdf_pdf = scattering_pdf(mat, rec, to_light_ray);
     float mis = (bsdf_pdf > 0) ? power_heuristic(light_pdf, bsdf_pdf) : 1.0f;
     result = result + emission * attenuation * (cos_theta * mis / light_pdf);
   }
@@ -317,12 +358,13 @@ __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, c
 
     // emissive hit — MIS weighted
     if (mat.is_emissive) {
-      if (prev_bsdf_pdf < 0) result = result + throughput * mat.emit_color;
+      GpuVec3 Le = sample_texture(scene, mat.emit_tex_id, rec.u, rec.v, mat.emit_color);
+      if (prev_bsdf_pdf < 0) result = result + throughput * Le;
       else {
         // diffuse bounce — weight against NEE
         float lp  = total_light_pdf(scene, ray.origin, ray.direction);
         float mis = (lp > 0) ? power_heuristic(prev_bsdf_pdf, lp) : 1.0f;
-        result = result + throughput * mat.emit_color * mis;
+        result = result + throughput * Le * mis;
       }
       break;
     }
@@ -333,7 +375,7 @@ __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, c
     // scatter for next bounce
     GpuVec3 attenuation;
     GpuRay  scattered;
-    if (!mat_scatter(mat, ray, rec, attenuation, scattered, rng)) break;
+    if (!mat_scatter(scene, mat, ray, rec, attenuation, scattered, rng)) break;
 
     float bsdf_pdf = scattering_pdf(mat, rec, scattered);
     if (bsdf_pdf > 0) {
@@ -343,7 +385,7 @@ __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, c
     prev_bsdf_pdf = (bsdf_pdf > 0) ? bsdf_pdf : -1.0f;
     ray = scattered;
 
-    // Russian roulette after depth 3 — unbiased early termination
+    // Russian roulette :) after depth 3 — unbiased early termination
     if (depth > 3) {
       float p = fmaxf(throughput.x, fmaxf(throughput.y, throughput.z));
       if (rand_f(rng) > p) break;
@@ -423,6 +465,26 @@ void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, con
   CUDA_CHECK(cudaMalloc(&d_scene.materials, host_scene.num_materials * sizeof(GpuMaterial)));
   CUDA_CHECK(cudaMemcpy(d_scene.materials, host_scene.materials, host_scene.num_materials * sizeof(GpuMaterial), cudaMemcpyHostToDevice));
   
+  // adding textures
+  d_scene.tex_data = nullptr;
+  d_scene.textures = nullptr;
+  d_scene.num_textures = host_scene.num_textures;
+  if (host_scene.num_textures > 0 && host_scene.tex_data) {
+    const GpuTexture &last = host_scene.textures[host_scene.num_textures - 1];
+    size_t total_pixels = last.offset + last.width * last.height;
+    size_t total_bytes  = total_pixels * 3;
+
+    CUDA_CHECK(cudaMalloc(&d_scene.tex_data, total_bytes));
+    CUDA_CHECK(cudaMemcpy(d_scene.tex_data, host_scene.tex_data,
+                          total_bytes, cudaMemcpyHostToDevice));
+
+    CUDA_CHECK(cudaMalloc(&d_scene.textures, host_scene.num_textures * sizeof(GpuTexture)));
+    CUDA_CHECK(cudaMemcpy(d_scene.textures, host_scene.textures,
+                          host_scene.num_textures * sizeof(GpuTexture), cudaMemcpyHostToDevice));
+
+    printf("GPU textures: %d uploaded (%zu KB)\n", host_scene.num_textures, total_bytes/1024);
+  }
+
   if (!host_lights.empty()) {
     CUDA_CHECK(cudaMalloc(&d_scene.lights, host_lights.size() * sizeof(GpuLight)));
     CUDA_CHECK(cudaMemcpy(d_scene.lights, host_lights.data(), host_lights.size() * sizeof(GpuLight), cudaMemcpyHostToDevice));
@@ -450,4 +512,6 @@ void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, con
   cudaFree(d_scene.materials);
   cudaFree(d_scene.bvh_nodes);
   cudaFree(d_scene.lights);
+  if (d_scene.tex_data)  cudaFree(d_scene.tex_data);
+  if (d_scene.textures)  cudaFree(d_scene.textures);
 }
