@@ -20,6 +20,9 @@ inline bool save_png(const std::string &filename, int width, int height, const s
     int flipped_j = height - 1 - j;
     for (int i = 0; i < width; ++i) {
       Vec3 pixel_color = framebuffer[flipped_j * width + i] / samples_per_pixel;
+
+      // reinhard tonemapping
+      pixel_color = Vec3(pixel_color.x / (1.0 + pixel_color.x), pixel_color.y / (1.0 + pixel_color.y), pixel_color.z / (1.0 + pixel_color.z));
       // Gamma correction
       pixel_color = Vec3(sqrt(pixel_color.x), sqrt(pixel_color.y), sqrt(pixel_color.z));
 

@@ -32,7 +32,7 @@
 #include <memory>
 
 // generate a synthetic normal map PNG with a bump pattern
-// this creates a checkerboard of tilted normals so the effect is obvious
+// this creates a sine-wave bump so the effect is obvious
 void generate_test_normal_map(const std::string &path, int size = 256) {
   std::vector<unsigned char> pixels(size * size * 3);
   for (int y = 0; y < size; ++y) {
@@ -41,7 +41,7 @@ void generate_test_normal_map(const std::string &path, int size = 256) {
       double freq = 8.0;
       double dx = cos(freq * 2.0 * 3.14159 * x / size) * 0.5;
       double dy = cos(freq * 2.0 * 3.14159 * y / size) * 0.5;
-      double dz = sqrt(1.0 - dx*dx - dy*dy);
+      double dz = sqrt(fmax(0.0, 1.0 - dx*dx - dy*dy));
 
       // encode [-1,1] -> [0,255]
       int idx = (y * size + x) * 3;
@@ -57,7 +57,7 @@ void generate_test_normal_map(const std::string &path, int size = 256) {
 int main() {
   int width = 1080;
   int height = 720;
-  const int samples_per_pixel = 20;
+  const int samples_per_pixel = 64;
   const int max_depth = 20;
 
   HittableList world;
@@ -71,6 +71,7 @@ int main() {
   nmap_mat->set_normal_map(std::make_shared<ImageTexture>("../../assets/test_normal.png", true));
 
   // two triangles for the left half of the floor
+  // UVs tile 3x over the surface so the bump pattern repeats visibly
   world.add(std::make_shared<Triangle>(
     Vec3(-30, 0, -30), Vec3(0, 0, 30), Vec3(0, 0, -30), nmap_mat,
     Vec3(0,0,0), Vec3(3,3,0), Vec3(3,0,0),
@@ -96,9 +97,9 @@ int main() {
   lights.push_back(std::make_shared<DirectionalLight>(Vec3(1, 1, 0.5), Vec3(1,1,1), 1.5));
 
   // area light above
-  auto light_mat = std::make_shared<DiffuseLight>(Vec3(1.0, 0.95, 0.8) * 8.0);
-  world.add(std::make_shared<Sphere>(Vec3(0, 20, 0), 3.0, light_mat));
-  lights.push_back(std::make_shared<SphereAreaLight>(Vec3(0, 20, 0), 3.0, Vec3(1.0, 0.95, 0.8), 8.0));
+  // auto light_mat = std::make_shared<DiffuseLight>(Vec3(1.0, 0.95, 0.8) * 8.0);
+  // world.add(std::make_shared<Sphere>(Vec3(0, 20, 0), 3.0, light_mat));
+  // lights.push_back(std::make_shared<SphereAreaLight>(Vec3(0, 20, 0), 3.0, Vec3(1.0, 0.95, 0.8), 8.0));
 
   BVHNode world_bvh(world.objects, 0, world.objects.size());
 

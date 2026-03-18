@@ -25,10 +25,12 @@ Vec3 ImageTexture::value(double u, double v, const Vec3 &point, double ray_t) co
   
   // we want to see where texels to pixels is approx 1:1 but we can't do the du/dv in rasterizers
   // using the following approximation, where ray_t is world-space distance, width gives texel density
-
-  double texels_per_pixel = ray_t * 0.2;
-  int level = (int)log2(std::max(texels_per_pixel, 1.0));
-  level = std::clamp(level, 0, max_level);
+  int level = 0;
+  if (!is_linear) {
+    double texels_per_pixel = ray_t * 0.2;
+    int level = (int)log2(std::max(texels_per_pixel, 1.0));
+    level = std::clamp(level, 0, max_level);
+  }
 
   const MipLevel &mip = mipmaps[level];
   
