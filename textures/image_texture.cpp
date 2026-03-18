@@ -3,7 +3,7 @@
 #include <cmath>
 #include <iostream>
 
-ImageTexture::ImageTexture(const std::string &filename) {
+ImageTexture::ImageTexture(const std::string &filename, bool linear) : is_linear(linear){
   data = stbi_load(filename.c_str(), &width, &height, &channels, 3);
   if (!data) {
     std::cerr << "Failed to load texture: " << filename << "\n";
@@ -37,28 +37,33 @@ Vec3 ImageTexture::value(double u, double v, const Vec3 &point, double ray_t) co
   int h = mip.height;
   unsigned char* tex = mip.data;
 
-  u = std::clamp(u, 0.0, 1.0);
-  v = 1.0 - std::clamp(v, 0.0, 1.0);
+  u = u - floor(u);  // wraps to [0,1)
+  v = v - floor(v);
+  v = 1.0 - v; 
   
   double i = u * (w - 1);
   double j = v * (h - 1);
 
   int i0 = (int) i;
   int j0 = (int) j;
-
   int i1 = std::min(i0 + 1, w - 1);
   int j1 = std::min(j0 + 1, h - 1);
 
   double tx = i - i0;
   double ty = j - j0;
-  
-  auto srgb_to_linear = [](double x) {
-    return pow(x, 2.2);
-  };
 
   auto get_pixel = [&](int i, int j) {
     int index = (j * w + i) * 3;
-    return Vec3(srgb_to_linear(tex[index] / 255.0), srgb_to_linear(tex[index + 1] / 255.0), srgb_to_linear(tex[index + 2] / 255.0));
+    double r = tex[index]     / 255.0;
+    double g = tex[index + 1] / 255.0;
+    double b = tex[index + 2] / 255.0;
+    if (!is_linear) {
+      // sRGB to linear (gamma 2.2)
+      r = pow(r, 2.2);
+      g = pow(g, 2.2);
+      b = pow(b, 2.2);
+    }
+    return Vec3(r, g, b);
   };
   
   Vec3 c00 = get_pixel(i0, j0);

@@ -13,8 +13,15 @@ struct HitRecord {
   double u;
   double v;
 
+  // tangent-space basis for normal mapping
+  Vec3 tangent;
+  Vec3 bitangent;
+  bool has_tbn;
+
   std::shared_ptr<Material> mat;
   bool front_face;
+
+  HitRecord() : t(0), u(0), v(0), has_tbn(false), front_face(false) {}
 
   inline void set_face_normal(const Ray &ray, const Vec3 &outward_normal) {
     front_face = ray.direction.dot(outward_normal) < 0;

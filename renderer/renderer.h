@@ -76,7 +76,7 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
 
     // emissive hit
     if (rec.mat->is_emissive()) {
-      Vec3 Le = rec.mat->emit(rec.u, rec.v, rec.point);
+      Vec3 Le = rec.front_face ? rec.mat->emit(rec.u, rec.v, rec.point) : Vec3(0,0,0);
 
       if (prev_bsdf_pdf < 0) return Le;
 
@@ -95,13 +95,14 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
     double bsdf_pdf = rec.mat->scattering_pdf(r, rec, scattered);
 
     if (bsdf_pdf <= 0) {
+      // specular — no pdf weighting needed
       result = result + ray_color(scattered, world, lights, depth - 1, -1.0) * attenuation;
     } 
     else {
-      // diffuse — pass bsdf_pdf for MIS weighting downstream
-      Vec3 indirect = ray_color(scattered, world, lights, depth - 1, bsdf_pdf) * attenuation;
-      // cos_theta / bsdf_pdf = 1 for Lambertian but kept explicit for other BSDFs
-      result = result + indirect;
+      // diffuse — explicit cos/pdf for correctness with any BSDF
+      double cos_theta = fmax(0.0, rec.normal.dot(scattered.direction.normalize()));
+      Vec3 indirect = ray_color(scattered, world, lights, depth - 1, bsdf_pdf);
+      result = result + indirect * attenuation * (cos_theta / bsdf_pdf);
     }
     return result;
   }
@@ -109,7 +110,7 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
   Vec3 unit = r.direction.normalize();
   double t = 0.5*(unit.y + 1.0);
   Vec3 sky = Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t;
-  return (prev_bsdf_pdf < 0) ? sky : sky * 0.3;
+  return sky;
 }
 
 inline void render_rows(int start_row, int end_row, int width, int height, int samples_per_pixel, int max_depth, const Camera &camera, const Hittable &world, const LightList &lights, std::vector<Vec3> &framebuffer) {

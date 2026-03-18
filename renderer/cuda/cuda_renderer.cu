@@ -97,18 +97,21 @@ __device__ bool sphere_hit(const GpuSphere &s, const GpuRay &ray, float t_min, f
   if (disc < 0) return false;
 
   float t = (-b - sqrtf(disc)) / a;
-  if (t < t_min || t > t_max) return false;
+  if (t <= t_min || t >= t_max) {
+    t = (-b + sqrtf(disc)) / a;  // try far root
+    if (t <= t_min || t >= t_max) return false;
+  }
 
-  rec.t     = t;
+  rec.t = t;
   rec.point = ray.at(t);
   GpuVec3 outward = (rec.point - s.center) * (1.0f / s.radius);
   rec.front_face = ray.direction.dot(outward) < 0;
   rec.normal = rec.front_face ? outward : GpuVec3{-outward.x, -outward.y, -outward.z};
-
-  // spherical UV coords
+  
+  // spherical uv coords
   float theta = acosf(-outward.y);
-  float phi   = atan2f(-outward.z, outward.x) + 3.14159265f;
-  rec.u = phi  / (2.0f * 3.14159265f);
+  float phi = atan2f(-outward.z, outward.x) + 3.14159265f;
+  rec.u = phi / (2.0f * 3.14159265f);
   rec.v = theta / 3.14159265f;
   return true;
 }
@@ -349,8 +352,7 @@ __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, c
       GpuVec3 unit = ray.direction.normalize();
       float t = 0.5f * (unit.y + 1.0f);
       GpuVec3 sky = GpuVec3{1,1,1} * (1-t) + GpuVec3{0.5f, 0.7f, 1.0f} * t;
-      float scale = (prev_bsdf_pdf < 0) ? 1.0f : 0.3f;
-      result = result + throughput * sky * scale;
+      result = result + throughput * sky;
       break;
     }
 
@@ -358,7 +360,7 @@ __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, c
 
     // emissive hit — MIS weighted
     if (mat.is_emissive) {
-      GpuVec3 Le = sample_texture(scene, mat.emit_tex_id, rec.u, rec.v, mat.emit_color);
+      GpuVec3 Le = rec.front_face ? sample_texture(scene, mat.emit_tex_id, rec.u, rec.v, mat.emit_color) : GpuVec3(0,0,0);
       if (prev_bsdf_pdf < 0) result = result + throughput * Le;
       else {
         // diffuse bounce — weight against NEE

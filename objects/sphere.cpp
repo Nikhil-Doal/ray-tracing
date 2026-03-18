@@ -13,17 +13,20 @@ bool Sphere::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) con
 
   if (discriminant > 0) {
     double t = (-b - sqrt(discriminant)) / a;
-    if (t > t_min && t < t_max) {
-      rec.t = t;
-      rec.mat = mat;
-      rec.point = ray.at(t);
-      
-      Vec3 outward_normal = (rec.point - center) / radius;
-      rec.set_face_normal(ray, outward_normal);
-      get_sphere_uv(outward_normal, rec.u, rec.v);
-
-      return true;
+    if (t <= t_min || t >= t_max) {
+      t = (-b + sqrt(discriminant)) / a;  // try far root
+      if (t <= t_min || t >= t_max) return false;
     }
+
+    rec.t = t;
+    rec.mat = mat;
+    rec.point = ray.at(t);
+    
+    Vec3 outward_normal = (rec.point - center) / radius;
+    rec.set_face_normal(ray, outward_normal);
+    get_sphere_uv(outward_normal, rec.u, rec.v);
+
+    return true;
   }
   return false;
 }

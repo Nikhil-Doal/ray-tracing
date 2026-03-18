@@ -16,8 +16,9 @@ public:
 
   unsigned char *data;
   int width, height, channels;
+  bool is_linear; 
 
-  ImageTexture(const std::string &filename);
+  ImageTexture(const std::string &filename, bool linear = false);
   ~ImageTexture();
   Vec3 value(double u, double v, const Vec3 &point, double ray_t = 0.0) const override;
 };
