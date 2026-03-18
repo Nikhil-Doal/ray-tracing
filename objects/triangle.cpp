@@ -7,6 +7,10 @@ Triangle::Triangle(Vec3 a, Vec3 b, Vec3 c, std::shared_ptr<Material> mat, Vec3 u
 
 Triangle::Triangle(Vec3 a, Vec3 b, Vec3 c, std::shared_ptr<Material> mat, Vec3 uv0, Vec3 uv1, Vec3 uv2, Vec3 n0, Vec3 n1, Vec3 n2) : v0(a), v1(b), v2(c), mat(mat), uv0(uv0), uv1(uv1), uv2(uv2), n0(n0), n1(n1), n2(n2), has_vertex_normals(true) {}
 
+static double sample_height(const std::shared_ptr<Texture> &tex, double u, double v, const Vec3 &point) {
+  Vec3 c = tex->value(u, v, point);
+  return (c.x + c.y + c.z) / 3.0;
+}
 
 // using Moller-Trumbore algorithm with TBN
 bool Triangle::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) const {
@@ -60,24 +64,26 @@ bool Triangle::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) c
   Vec3 duv1 = uv1 - uv0;
   Vec3 duv2 = uv2 - uv0;
   double det = duv1.x * duv2.y - duv1.y * duv2.x;
-
   rec.has_tbn = false;
+
+  Vec3 tangent, bitangent;
   if (fabs(det) > EPSILON) {
     double inv_det = 1.0 / det;
     Vec3 raw_tangent   = (edge1 * duv2.y - edge2 * duv1.y) * inv_det;
     Vec3 raw_bitangent = (edge2 * duv1.x - edge1 * duv2.x) * inv_det;
 
     // Gram-Schmidt orthogonalize tangent against the shading normal
-    Vec3 tangent = (raw_tangent - shading_normal * shading_normal.dot(raw_tangent)).normalize();
+    tangent = raw_tangent - shading_normal * shading_normal.dot(raw_tangent);
 
     // check for degenerate tangent (can happen with bad UVs)
     if (tangent.norm() < 0.001) {
       // fallback: pick an arbitrary tangent perpendicular to shading_normal
       Vec3 arbitrary = (fabs(shading_normal.x) > 0.9) ? Vec3(0,1,0) : Vec3(1,0,0);
-      tangent = shading_normal.cross(arbitrary).normalize();
+      tangent = shading_normal.cross(arbitrary);
     }
+    tangent = tangent.normalize();
 
-    Vec3 bitangent = shading_normal.cross(tangent).normalize();
+    bitangent = shading_normal.cross(tangent).normalize();
 
     // ensure right-handedness: flip bitangent if it disagrees with raw
     if (bitangent.dot(raw_bitangent) < 0.0) bitangent = bitangent * -1;
@@ -87,23 +93,69 @@ bool Triangle::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) c
     rec.has_tbn = true;
   }
 
-  // apply normal map if the material has one and we have a valid TBN
+  // ---- Apply bump map (grayscale heightmap -> perturbed normal) ----
+  if (rec.has_tbn && mat && mat->bump_map) {
+    // Finite differences: sample height at current UV and two neighbors
+    double du = 1.0 / 1024.0;  // step size in UV (roughly 1 texel for a 1024px texture)
+    double dv = 1.0 / 1024.0;
+
+    double h_center = sample_height(mat->bump_map, rec.u,      rec.v,      rec.point);
+    double h_right  = sample_height(mat->bump_map, rec.u + du,  rec.v,      rec.point);
+    double h_up     = sample_height(mat->bump_map, rec.u,       rec.v + dv, rec.point);
+
+    // Gradient: how fast height changes in U and V directions
+    double dh_du = (h_right - h_center) / du;
+    double dh_dv = (h_up    - h_center) / dv;
+
+    // Scale by bump strength
+    dh_du *= mat->bump_strength;
+    dh_dv *= mat->bump_strength;
+
+    // Perturb the shading normal using the tangent-space gradient:
+    // new_normal = N - dh_du * T - dh_dv * B
+    // (negative because a positive slope tilts the normal AWAY from the slope direction)
+    Vec3 mapped_normal = (shading_normal - tangent * dh_du - bitangent * dh_dv).normalize();
+
+    // Keep above geometric surface
+    if (mapped_normal.dot(geometric_normal) < 0.01) {
+      mapped_normal = (mapped_normal + geometric_normal * 0.1).normalize();
+    }
+
+    shading_normal = mapped_normal;
+  }
+
+  // ---- Apply normal map (tangent-space RGB -> perturbed normal) ----
   if (rec.has_tbn && mat && mat->normal_map) {
     Vec3 map_sample = mat->normal_map->value(rec.u, rec.v, rec.point, rec.t);
 
-    // convert from [0,1] texture space to [-1,1] tangent space
-    Vec3 tangent_normal( map_sample.x * 2.0 - 1.0, map_sample.y * 2.0 - 1.0, map_sample.z * 2.0 - 1.0);
+    double tn_x = map_sample.x * 2.0 - 1.0;
+    double tn_y = map_sample.y * 2.0 - 1.0;
+    double tn_z = map_sample.z * 2.0 - 1.0;
 
-    // normalize the tangent-space normal (textures may not be perfectly unit length)
-    tangent_normal = tangent_normal.normalize();
+    // Scale X/Y by strength
+    tn_x *= mat->normal_map_strength;
+    tn_y *= mat->normal_map_strength;
 
-    // transform tangent-space normal to world space using TBN matrix
-    shading_normal = (rec.tangent * tangent_normal.x + rec.bitangent * tangent_normal.y + shading_normal * tangent_normal.z).normalize();
+    Vec3 tangent_normal = Vec3(tn_x, tn_y, tn_z).normalize();
+
+    Vec3 mapped_normal = (rec.tangent * tangent_normal.x +
+                          rec.bitangent * tangent_normal.y +
+                          shading_normal * tangent_normal.z).normalize();
+
+    if (mapped_normal.dot(geometric_normal) < 0.01) {
+      mapped_normal = (mapped_normal + geometric_normal * 0.1).normalize();
+    }
+
+    shading_normal = mapped_normal;
   }
 
-  // flip the final shading normal to face the ray (based on front_face we already determined)
   rec.normal = rec.front_face ? shading_normal : shading_normal * -1;
   rec.mat = mat;
+
+  // Offset along GEOMETRIC normal to prevent self-intersection
+  Vec3 geo_offset = rec.front_face ? geometric_normal : geometric_normal * -1;
+  rec.point = rec.point + geo_offset * 1e-4;
+
   return true;
 }
 

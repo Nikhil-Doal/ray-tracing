@@ -37,7 +37,7 @@ inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable
 
     // shadow ray
     HitRecord shadow_rec;
-    Ray shadow_ray(rec.point + rec.normal * 1e-4, to_light_dir);
+    Ray shadow_ray(rec.point, to_light_dir);
     if (world.hit(shadow_ray, 0.001, dist - 0.01, shadow_rec)) {
       if (!shadow_rec.mat->is_emissive()) continue; 
     }

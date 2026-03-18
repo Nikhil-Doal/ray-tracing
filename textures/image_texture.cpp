@@ -21,14 +21,14 @@ ImageTexture::~ImageTexture() {
 
 Vec3 ImageTexture::value(double u, double v, const Vec3 &point, double ray_t) const {
   if (!data) return Vec3(0, 1, 1); // random debugging color
-  int max_level = (int)mipmaps.size() -1 ;
+  int max_level = (int)mipmaps.size() -1;
   
   // we want to see where texels to pixels is approx 1:1 but we can't do the du/dv in rasterizers
   // using the following approximation, where ray_t is world-space distance, width gives texel density
   int level = 0;
-  if (!is_linear) {
+  if (!is_linear && max_level > 0) {
     double texels_per_pixel = ray_t * 0.2;
-    int level = (int)log2(std::max(texels_per_pixel, 1.0));
+    level = (int)log2(std::max(texels_per_pixel, 1.0));
     level = std::clamp(level, 0, max_level);
   }
 
@@ -85,7 +85,7 @@ void ImageTexture::generate_mipmaps() {
   int h = height;
   unsigned char *prev = data;
 
-  while(w > 1 && h > 1 ) {
+  while(w > 1 && h > 1) {
     int new_w = w/2;
     int new_h = h/2;
     unsigned char* next = new unsigned char[new_w * new_h * 3];

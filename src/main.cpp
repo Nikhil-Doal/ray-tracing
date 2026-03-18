@@ -16,6 +16,7 @@
 #include "../materials/lambertian.h"
 #include "../materials/metal.h"
 #include "../materials/dielectric.h"
+#include "../materials/glossy.h"
 #include "../core/camera.h"
 #include "../utils/random_scene.h"
 #include "../objects/bvh_node.h"
@@ -31,87 +32,79 @@
 #include "../lights/area_light.h"
 #include <memory>
 
-// generate a synthetic normal map PNG with a bump pattern
-// this creates a sine-wave bump so the effect is obvious
-void generate_test_normal_map(const std::string &path, int size = 256) {
-  std::vector<unsigned char> pixels(size * size * 3);
-  for (int y = 0; y < size; ++y) {
-    for (int x = 0; x < size; ++x) {
-      // create a sine wave bump pattern
-      double freq = 8.0;
-      double dx = cos(freq * 2.0 * 3.14159 * x / size) * 0.5;
-      double dy = cos(freq * 2.0 * 3.14159 * y / size) * 0.5;
-      double dz = sqrt(fmax(0.0, 1.0 - dx*dx - dy*dy));
-
-      // encode [-1,1] -> [0,255]
-      int idx = (y * size + x) * 3;
-      pixels[idx + 0] = (unsigned char)((dx * 0.5 + 0.5) * 255);
-      pixels[idx + 1] = (unsigned char)((dy * 0.5 + 0.5) * 255);
-      pixels[idx + 2] = (unsigned char)((dz * 0.5 + 0.5) * 255);
-    }
-  }
-  stbi_write_png(path.c_str(), size, size, 3, pixels.data(), size * 3);
-  std::cout << "Generated test normal map: " << path << "\n";
-}
-
 int main() {
   int width = 1080;
   int height = 720;
-  const int samples_per_pixel = 64;
+  const int samples_per_pixel = 128;
   const int max_depth = 20;
 
   HittableList world;
   LightList lights;
 
-  // generate a synthetic normal map so we know the data is correct
-  generate_test_normal_map("../../assets/test_normal.png", 256);
+  float tile = 1.0f;
 
-  // LEFT SIDE: normal-mapped floor
-  auto nmap_mat = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(0.9, 0.9, 0.9)));
-  nmap_mat->set_normal_map(std::make_shared<ImageTexture>("../../assets/test_normal.png", true));
 
-  // two triangles for the left half of the floor
-  // UVs tile 3x over the surface so the bump pattern repeats visibly
+  auto nmap_mat = std::make_shared<Glossy>(std::make_shared<ImageTexture>("../../assets/bricks.jpg"),0.3, 0.5);
+  // auto nmap_mat = std::make_shared<Glossy>(std::make_shared<SolidColor>(Vec3(0.5, 0.5, 0.5)));
+
+  nmap_mat->set_normal_map(std::make_shared<ImageTexture>("../../assets/bricks_normal.jpg", true));
+  nmap_mat->set_bump_map(std::make_shared<ImageTexture>("../../assets/bricks_bump.jpg", true), 2.0);
+
+  // Left floor
+  world.add(std::make_shared<Triangle>(Vec3(-15, 0, -15), Vec3(0, 0, 15), Vec3(0, 0, -15), nmap_mat, Vec3(0,0,0), Vec3(tile,tile,0), Vec3(tile,0,0), Vec3(0,10,0), Vec3(0,10,0), Vec3(0,10,0)));
   world.add(std::make_shared<Triangle>(
-    Vec3(-30, 0, -30), Vec3(0, 0, 30), Vec3(0, 0, -30), nmap_mat,
-    Vec3(0,0,0), Vec3(3,3,0), Vec3(3,0,0),
-    Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
-  world.add(std::make_shared<Triangle>(
-    Vec3(-30, 0, -30), Vec3(-30, 0, 30), Vec3(0, 0, 30), nmap_mat,
-    Vec3(0,0,0), Vec3(0,3,0), Vec3(3,3,0),
+    Vec3(-15, 0, -15), Vec3(-15, 0, 15), Vec3(0, 0, 15), nmap_mat,
+    Vec3(0,0,0), Vec3(0,tile,0), Vec3(tile,tile,0),
     Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
 
-  // RIGHT SIDE: plain flat floor (no normal map) for comparison
-  auto flat_mat = std::make_shared<Lambertian>(std::make_shared<SolidColor>(Vec3(0.9, 0.9, 0.9)));
-
+  // Left wall
   world.add(std::make_shared<Triangle>(
-    Vec3(0, 0, -30), Vec3(30, 0, 30), Vec3(30, 0, -30), flat_mat,
-    Vec3(0,0,0), Vec3(1,1,0), Vec3(1,0,0),
+    Vec3(-15, 0, -5), Vec3(0, 0, -5), Vec3(0, 8, -5), nmap_mat,
+    Vec3(0,0,0), Vec3(tile,0,0), Vec3(tile,tile*0.5f,0),
+    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
+  world.add(std::make_shared<Triangle>(
+    Vec3(-15, 0, -5), Vec3(0, 8, -5), Vec3(-15, 8, -5), nmap_mat,
+    Vec3(0,0,0), Vec3(tile,tile*0.5f,0), Vec3(0,tile*0.5f,0),
+    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
+
+  // ---- RIGHT SIDE: same Glossy material, NO normal map ----
+  auto flat_mat = std::make_shared<Glossy>(std::make_shared<ImageTexture>("../../assets/bricks.jpg"), 0.3, 0.5);
+  // auto flat_mat = std::make_shared<Glossy>(std::make_shared<SolidColor>(Vec3(0.5, 0.5, 0.5)));
+  
+  // Right floor
+  world.add(std::make_shared<Triangle>(
+    Vec3(0, 0, -15), Vec3(15, 0, 15), Vec3(15, 0, -15), flat_mat,
+    Vec3(0,0,0), Vec3(tile,tile,0), Vec3(tile,0,0),
     Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
   world.add(std::make_shared<Triangle>(
-    Vec3(0, 0, -30), Vec3(0, 0, 30), Vec3(30, 0, 30), flat_mat,
-    Vec3(0,0,0), Vec3(0,1,0), Vec3(1,1,0),
+    Vec3(0, 0, -15), Vec3(0, 0, 15), Vec3(15, 0, 15), flat_mat,
+    Vec3(0,0,0), Vec3(0,tile,0), Vec3(tile,tile,0),
     Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
 
-  // strong directional light from the side to show bumps clearly
-  lights.push_back(std::make_shared<DirectionalLight>(Vec3(1, 1, 0.5), Vec3(1,1,1), 1.5));
+  // Right wall
+  world.add(std::make_shared<Triangle>(
+    Vec3(0, 0, -5), Vec3(15, 0, -5), Vec3(15, 8, -5), flat_mat,
+    Vec3(0,0,0), Vec3(tile,0,0), Vec3(tile,tile*0.5f,0),
+    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
+  world.add(std::make_shared<Triangle>(
+    Vec3(0, 0, -5), Vec3(15, 8, -5), Vec3(0, 8, -5), flat_mat,
+    Vec3(0,0,0), Vec3(tile,tile*0.5f,0), Vec3(0,tile*0.5f,0),
+    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
 
-  // area light above
-  // auto light_mat = std::make_shared<DiffuseLight>(Vec3(1.0, 0.95, 0.8) * 8.0);
-  // world.add(std::make_shared<Sphere>(Vec3(0, 20, 0), 3.0, light_mat));
-  // lights.push_back(std::make_shared<SphereAreaLight>(Vec3(0, 20, 0), 3.0, Vec3(1.0, 0.95, 0.8), 8.0));
+
 
   BVHNode world_bvh(world.objects, 0, world.objects.size());
 
-  // camera looking down at the floor at an angle
   double aspect_ratio = double(width) / height;
-  Vec3 lookfrom(0, 15, 25);
-  Vec3 lookat(0, 0, 0);
-  Camera camera(lookfrom, lookat, Vec3(0,1,0), 80, aspect_ratio, 0.0, (lookfrom - lookat).norm());
+  Vec3 lookfrom(0, 6, 14);
+  Vec3 lookat(0, 2, -2);
+  Camera camera(lookfrom, lookat, Vec3(0,1,0), 65, aspect_ratio, 0.0, (lookfrom - lookat).norm());
 
   std::vector<Vec3> framebuffer(width * height);
   render_image(width, height, samples_per_pixel, max_depth, camera, world_bvh, lights, framebuffer);
   save_png("../../image.png", width, height, framebuffer, samples_per_pixel);
 
-  std::cout << "Done! Left half = normal mapped, Right half = flat. Compare them.\n";
+  std::cout << "Done! Left = Glossy + normal map, Right = Glossy flat.\n";
+  std::cout << "The specular highlights should break up on the left (bumpy bricks)\n";
+  std::cout << "vs smooth blobs on the right.\n";
 }
