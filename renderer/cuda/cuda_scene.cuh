@@ -44,7 +44,7 @@ struct GpuTexture
 
 
 // Material 
-enum class GpuMatType : uint8_t { LAMBERTIAN, METAL, DIELECTRIC, DIFFUSE_LIGHT }; // using class to keep scoped
+enum class GpuMatType : uint8_t { LAMBERTIAN, METAL, DIELECTRIC, DIFFUSE_LIGHT, GLOSSY }; // using class to keep scoped
 struct GpuMaterial {
   GpuMatType type;
   GpuVec3 albedo; // lamb + met col
@@ -56,6 +56,15 @@ struct GpuMaterial {
 
   int albedo_tex_id;
   int emit_tex_id;
+    
+  int normal_tex_id;      // tangent-space normal map texture (-1 = none)
+  int bump_tex_id;        // grayscale bump/height map texture (-1 = none)
+  float normal_map_strength;  // scale for normal map X/Y perturbation
+  float bump_strength;        // scale for bump map gradient
+
+  // Glossy params
+  float roughness;
+  float specular_strength;
 };
 
 enum class GpuGeomType : uint8_t { SPHERE, TRIANGLE };
@@ -66,6 +75,8 @@ struct GpuSphere {
 struct GpuTriangle {
   GpuVec3 v0, v1, v2;
   GpuVec3 uv0, uv1, uv2;
+  GpuVec3 n0, n1, n2;          // per-vertex normals
+  bool has_vertex_normals;
 };
 
 struct GpuPrimitive {
@@ -95,6 +106,12 @@ struct GpuHitRecord {
   float u, v;
   int mat_id;
   bool front_face;
+
+  GpuVec3 tangent;
+  GpuVec3 bitangent;
+  GpuVec3 shading_normal;   // unperturbed shading normal (for TBN transform)
+  GpuVec3 geometric_normal; // raw geometric normal (for self-intersection offset)
+  bool has_tbn;
 };
 
 enum class GpuLightType : uint8_t { DIRECTIONAL, POINT, SPHERE_AREA };
@@ -116,6 +133,14 @@ struct GpuCamera {
   float lens_radius;
 };
 
+// HDR sky texture (equirectangular)
+struct GpuSkyTex {
+  float *data;       // float RGB pixels (linear HDR)
+  int width;
+  int height;
+  float intensity;   // multiplier
+  bool enabled;
+};
 
 // Full scene to be passed to GPU kernel - at this point all the pointers are gpu device ptrs after upload
 struct GpuScene {
@@ -135,4 +160,6 @@ struct GpuScene {
   unsigned char *tex_data;
   GpuTexture *textures;
   int num_textures;
+
+  GpuSkyTex sky;
 };

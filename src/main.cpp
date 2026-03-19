@@ -25,6 +25,7 @@
 #include "../utils/image_writer.h"
 #include "../textures/solid_color.h"
 #include "../textures/image_texture.h"
+#include "../textures/hdr_texture.h"
 #include "../lights/point_light.h"
 #include "../lights/directional_light.h"
 #include "../objects/rotate.h"
@@ -41,17 +42,22 @@ int main() {
   HittableList world;
   LightList lights;
 
+  // HDR sky
+  g_sky_texture = std::make_shared<HdrTexture>("../../assets/sky.hdr");
+  g_sky_intensity = 1.0f;
+
   float tile = 1.0f;
 
-
-  auto nmap_mat = std::make_shared<Glossy>(std::make_shared<ImageTexture>("../../assets/bricks.jpg"),0.3, 0.5);
-  // auto nmap_mat = std::make_shared<Glossy>(std::make_shared<SolidColor>(Vec3(0.5, 0.5, 0.5)));
-
-  nmap_mat->set_normal_map(std::make_shared<ImageTexture>("../../assets/bricks_normal.jpg", true));
-  nmap_mat->set_bump_map(std::make_shared<ImageTexture>("../../assets/bricks_bump.jpg", true), 2.0);
+  // ---- LEFT SIDE: Glossy + normal map + bump map ----
+  auto nmap_mat = std::make_shared<Glossy>(std::make_shared<ImageTexture>("../../assets/bricks.jpg"), 0.3, 0.5);
+  nmap_mat->set_normal_map(std::make_shared<ImageTexture>("../../assets/bricks_normal.jpg", true), 5.0);
+  nmap_mat->set_bump_map(std::make_shared<ImageTexture>("../../assets/bricks_bump.jpg", true), 10.0);
 
   // Left floor
-  world.add(std::make_shared<Triangle>(Vec3(-15, 0, -15), Vec3(0, 0, 15), Vec3(0, 0, -15), nmap_mat, Vec3(0,0,0), Vec3(tile,tile,0), Vec3(tile,0,0), Vec3(0,10,0), Vec3(0,10,0), Vec3(0,10,0)));
+  world.add(std::make_shared<Triangle>(
+    Vec3(-15, 0, -15), Vec3(0, 0, 15), Vec3(0, 0, -15), nmap_mat,
+    Vec3(0,0,0), Vec3(tile,tile,0), Vec3(tile,0,0),
+    Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
   world.add(std::make_shared<Triangle>(
     Vec3(-15, 0, -15), Vec3(-15, 0, 15), Vec3(0, 0, 15), nmap_mat,
     Vec3(0,0,0), Vec3(0,tile,0), Vec3(tile,tile,0),
@@ -67,10 +73,9 @@ int main() {
     Vec3(0,0,0), Vec3(tile,tile*0.5f,0), Vec3(0,tile*0.5f,0),
     Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
 
-  // ---- RIGHT SIDE: same Glossy material, NO normal map ----
+  // ---- RIGHT SIDE: Glossy flat (no normal/bump map) ----
   auto flat_mat = std::make_shared<Glossy>(std::make_shared<ImageTexture>("../../assets/bricks.jpg"), 0.3, 0.5);
-  // auto flat_mat = std::make_shared<Glossy>(std::make_shared<SolidColor>(Vec3(0.5, 0.5, 0.5)));
-  
+
   // Right floor
   world.add(std::make_shared<Triangle>(
     Vec3(0, 0, -15), Vec3(15, 0, 15), Vec3(15, 0, -15), flat_mat,
@@ -91,7 +96,10 @@ int main() {
     Vec3(0,0,0), Vec3(tile,tile*0.5f,0), Vec3(0,tile*0.5f,0),
     Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
 
-
+  // Area light
+  auto light_mat = std::make_shared<DiffuseLight>(Vec3(1.0, 0.95, 0.8) * 8.0);
+  world.add(std::make_shared<Sphere>(Vec3(0, 20, 0), 3.0, light_mat));
+  lights.push_back(std::make_shared<SphereAreaLight>(Vec3(0, 20, 0), 3.0, Vec3(1.0, 0.95, 0.8), 8.0));
 
   BVHNode world_bvh(world.objects, 0, world.objects.size());
 
@@ -104,7 +112,6 @@ int main() {
   render_image(width, height, samples_per_pixel, max_depth, camera, world_bvh, lights, framebuffer);
   save_png("../../image.png", width, height, framebuffer, samples_per_pixel);
 
-  std::cout << "Done! Left = Glossy + normal map, Right = Glossy flat.\n";
-  std::cout << "The specular highlights should break up on the left (bumpy bricks)\n";
-  std::cout << "vs smooth blobs on the right.\n";
+  std::cout << "Done! Left = Glossy + normal/bump map, Right = Glossy flat.\n";
+  std::cout << "HDR sky enabled.\n";
 }

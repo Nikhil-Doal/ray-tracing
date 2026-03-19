@@ -14,6 +14,8 @@
   } \
 } while (0)
 
+#define GPU_PI 3.14159265f
+
 // random number generator helpers
 // inline to reduce overhead 
 __device__ inline float rand_f(curandState *s) { return curand_uniform(s); }
@@ -25,7 +27,7 @@ __device__ inline GpuVec3 rand_in_unit_sphere(curandState *s) {
 __device__ inline GpuVec3 rand_cosine_direction(curandState *s) {
   float r1 = rand_f(s);
   float r2 = rand_f(s);
-  float phi = 2.0f * 3.14159265f * r1;
+  float phi = 2.0f * GPU_PI * r1;
   float x = cosf(phi) * sqrtf(r2);
   float y = sinf(phi) * sqrtf(r2);
   float z = sqrtf(1.0f - r2);
@@ -40,8 +42,9 @@ __device__ GpuVec3 sample_texture(const GpuScene &scene, int tex_id, float u, fl
   if (tex.width <= 0 || tex.height <= 0) return solid_color;
 
   // Clamp UV
-  u = u < 0.0f ? 0.0f : (u > 1.0f ? 1.0f : u);
-  v = 1.0f - (v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v)); // flip V (stb origin = top-left)
+  u = u - floorf(u);
+  v = v - floorf(v);
+  v = 1.0f - v;
 
   float fi = u * (tex.width  - 1);
   float fj = v * (tex.height - 1);
@@ -63,14 +66,85 @@ __device__ GpuVec3 sample_texture(const GpuScene &scene, int tex_id, float u, fl
     return {r, g, b};
   };
 
-  GpuVec3 c00 = get(i0, j0);
-  GpuVec3 c10 = get(i1, j0);
-  GpuVec3 c01 = get(i0, j1);
-  GpuVec3 c11 = get(i1, j1);
+  GpuVec3 c00 = get(i0, j0), c10 = get(i1, j0);
+  GpuVec3 c01 = get(i0, j1), c11 = get(i1, j1);
+  GpuVec3 c0 = c00*(1-tx) + c10*tx;
+  GpuVec3 c1 = c01*(1-tx) + c11*tx;
+  return c0*(1-ty) + c1*ty;
+}
+
+// Linear texture (normal maps, bump maps) - NO gamma
+__device__ GpuVec3 sample_texture_linear(const GpuScene &scene, int tex_id, float u, float v) {
+  if (tex_id < 0 || tex_id >= scene.num_textures || !scene.tex_data)
+    return GpuVec3(0.5f, 0.5f, 1.0f);
+
+  const GpuTexture &tex = scene.textures[tex_id];
+  if (tex.width <= 0 || tex.height <= 0) return GpuVec3(0.5f, 0.5f, 1.0f);
+
+  u = u - floorf(u);
+  v = v - floorf(v);
+  v = 1.0f - v;
+
+  float fi = u * (tex.width  - 1);
+  float fj = v * (tex.height - 1);
+  int i0 = (int)fi, j0 = (int)fj;
+  int i1 = i0 + 1 < tex.width  ? i0 + 1 : i0;
+  int j1 = j0 + 1 < tex.height ? j0 + 1 : j0;
+  float tx = fi - i0, ty = fj - j0;
+
+  const unsigned char *base = scene.tex_data + tex.offset * 3;
+  auto get = [&](int ii, int jj) -> GpuVec3 {
+    const unsigned char *p = base + (jj * tex.width + ii) * 3;
+    return {p[0] / 255.0f, p[1] / 255.0f, p[2] / 255.0f};
+  };
+
+  GpuVec3 c00 = get(i0, j0), c10 = get(i1, j0);
+  GpuVec3 c01 = get(i0, j1), c11 = get(i1, j1);
 
   GpuVec3 c0 = c00*(1-tx) + c10*tx;
   GpuVec3 c1 = c01*(1-tx) + c11*tx;
   return c0*(1-ty) + c1*ty;
+}
+
+// Sample grayscale height from linear texture (average RGB)
+__device__ float sample_height(const GpuScene &scene, int tex_id, float u, float v) {
+  GpuVec3 c = sample_texture_linear(scene, tex_id, u, v);
+  return (c.x + c.y + c.z) / 3.0f;
+}
+
+// HDR sky sampling (equirectangular)
+__device__ GpuVec3 sample_sky(const GpuScene &scene, const GpuVec3 &dir) {
+  if (!scene.sky.enabled || !scene.sky.data) {
+    // fallback gradient
+    GpuVec3 unit = dir.normalize();
+    float t = 0.5f * (unit.y + 1.0f);
+    return GpuVec3{1,1,1} * (1-t) + GpuVec3{0.5f, 0.7f, 1.0f} * t;
+  }
+
+  GpuVec3 unit = dir.normalize();
+  float theta = acosf(fmaxf(-1.0f, fminf(1.0f, unit.y)));
+  float phi = atan2f(unit.z, unit.x) + GPU_PI;
+
+  float u = phi / (2.0f * GPU_PI);
+  float v = theta / GPU_PI;
+
+  float fi = u * (scene.sky.width - 1);
+  float fj = v * (scene.sky.height - 1);
+  int i0 = (int)fi, j0 = (int)fj;
+  int i1 = i0 + 1 < scene.sky.width  ? i0 + 1 : i0;
+  int j1 = j0 + 1 < scene.sky.height ? j0 + 1 : j0;
+  float tx = fi - i0, ty = fj - j0;
+
+  auto get = [&](int ii, int jj) -> GpuVec3 {
+    int idx = (jj * scene.sky.width + ii) * 3;
+    return {scene.sky.data[idx], scene.sky.data[idx+1], scene.sky.data[idx+2]};
+  };
+
+  GpuVec3 c00 = get(i0, j0), c10 = get(i1, j0);
+  GpuVec3 c01 = get(i0, j1), c11 = get(i1, j1);
+  GpuVec3 c0 = c00*(1-tx) + c10*tx;
+  GpuVec3 c1 = c01*(1-tx) + c11*tx;
+  return (c0*(1-ty) + c1*ty) * scene.sky.intensity;
 }
 
 // AABB hit test
@@ -107,12 +181,14 @@ __device__ bool sphere_hit(const GpuSphere &s, const GpuRay &ray, float t_min, f
   GpuVec3 outward = (rec.point - s.center) * (1.0f / s.radius);
   rec.front_face = ray.direction.dot(outward) < 0;
   rec.normal = rec.front_face ? outward : GpuVec3{-outward.x, -outward.y, -outward.z};
-  
+  rec.geometric_normal = outward;
+  rec.has_tbn = false;
+
   // spherical uv coords
   float theta = acosf(-outward.y);
-  float phi = atan2f(-outward.z, outward.x) + 3.14159265f;
-  rec.u = phi / (2.0f * 3.14159265f);
-  rec.v = theta / 3.14159265f;
+  float phi = atan2f(-outward.z, outward.x) + GPU_PI;
+  rec.u = phi / (2.0f * GPU_PI);
+  rec.v = theta / GPU_PI;
   return true;
 }
 
@@ -143,10 +219,100 @@ __device__ bool triangle_hit(const GpuTriangle &tri, const GpuRay &ray, float t_
   rec.u     = bw*tri.uv0.x + bu*tri.uv1.x + bv*tri.uv2.x;
   rec.v     = bw*tri.uv0.y + bu*tri.uv1.y + bv*tri.uv2.y;
 
-  GpuVec3 n = e1.cross(e2).normalize();
-  rec.front_face = ray.direction.dot(n) < 0;
-  rec.normal     = rec.front_face ? n : GpuVec3{-n.x, -n.y, -n.z};
+  // Geometric normal
+  GpuVec3 geo_n = e1.cross(e2).normalize();
+  rec.front_face = ray.direction.dot(geo_n) < 0;
+  rec.geometric_normal = geo_n;
+
+  // Shading normal (smooth or flat)
+  GpuVec3 shading_n;
+  if (tri.has_vertex_normals) {
+    shading_n = (tri.n0 * bw + tri.n1 * bu + tri.n2 * bv).normalize();
+  } else {
+    shading_n = geo_n;
+  }
+  if (shading_n.dot(geo_n) < 0) shading_n = shading_n * -1.0f;
+
+  // Compute TBN from UV gradients
+  GpuVec3 duv1(tri.uv1.x - tri.uv0.x, tri.uv1.y - tri.uv0.y, 0);
+  GpuVec3 duv2(tri.uv2.x - tri.uv0.x, tri.uv2.y - tri.uv0.y, 0);
+  float det = duv1.x * duv2.y - duv1.y * duv2.x;
+
+  rec.has_tbn = false;
+  if (fabsf(det) > EPS) {
+    float inv_det = 1.0f / det;
+    GpuVec3 raw_tangent   = (e1 * duv2.y - e2 * duv1.y) * inv_det;
+    GpuVec3 raw_bitangent = (e2 * duv1.x - e1 * duv2.x) * inv_det;
+
+    // Gram-Schmidt orthogonalize
+    GpuVec3 tangent = raw_tangent - shading_n * shading_n.dot(raw_tangent);
+    if (tangent.norm() < 0.001f) {
+      GpuVec3 arb = (fabsf(shading_n.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
+      tangent = shading_n.cross(arb);
+    }
+    tangent = tangent.normalize();
+
+    GpuVec3 bitangent = shading_n.cross(tangent).normalize();
+    if (bitangent.dot(raw_bitangent) < 0.0f) bitangent = bitangent * -1.0f;
+
+    rec.tangent = tangent;
+    rec.bitangent = bitangent;
+    rec.shading_normal = shading_n;
+    rec.has_tbn = true;
+  }
+
+  rec.normal = rec.front_face ? shading_n : shading_n * -1.0f;
   return true;
+}
+
+// Apply bump map (grayscale heightmap -> perturbed normal via finite differences)
+__device__ void apply_bump_map(const GpuScene &scene, GpuHitRecord &rec) {
+  if (!rec.has_tbn) return;
+  const GpuMaterial &mat = scene.materials[rec.mat_id];
+  if (mat.bump_tex_id < 0) return;
+
+  float du = 1.0f / 1024.0f;
+  float dv = 1.0f / 1024.0f;
+
+  float h_center = sample_height(scene, mat.bump_tex_id, rec.u,      rec.v);
+  float h_right  = sample_height(scene, mat.bump_tex_id, rec.u + du, rec.v);
+  float h_up     = sample_height(scene, mat.bump_tex_id, rec.u,      rec.v + dv);
+
+  float dh_du = (h_right - h_center) / du * mat.bump_strength;
+  float dh_dv = (h_up    - h_center) / dv * mat.bump_strength;
+
+  GpuVec3 mapped = (rec.shading_normal - rec.tangent * dh_du - rec.bitangent * dh_dv).normalize();
+
+  if (mapped.dot(rec.geometric_normal) < 0.01f) {
+    mapped = (mapped + rec.geometric_normal * 0.1f).normalize();
+  }
+
+  // Update shading normal for subsequent normal map application
+  rec.shading_normal = mapped;
+  rec.normal = rec.front_face ? mapped : mapped * -1.0f;
+}
+
+// Apply normal map (tangent-space RGB -> perturbed normal)
+__device__ void apply_normal_map(const GpuScene &scene, GpuHitRecord &rec) {
+  if (!rec.has_tbn) return;
+  const GpuMaterial &mat = scene.materials[rec.mat_id];
+  if (mat.normal_tex_id < 0) return;
+
+  GpuVec3 map_sample = sample_texture_linear(scene, mat.normal_tex_id, rec.u, rec.v);
+
+  float tn_x = (map_sample.x * 2.0f - 1.0f) * mat.normal_map_strength;
+  float tn_y = (map_sample.y * 2.0f - 1.0f) * mat.normal_map_strength;
+  float tn_z = map_sample.z * 2.0f - 1.0f;
+
+  GpuVec3 tn = GpuVec3(tn_x, tn_y, tn_z).normalize();
+
+  GpuVec3 mapped = (rec.tangent * tn.x + rec.bitangent * tn.y + rec.shading_normal * tn.z).normalize();
+
+  if (mapped.dot(rec.geometric_normal) < 0.01f) {
+    mapped = (mapped + rec.geometric_normal * 0.1f).normalize();
+  }
+
+  rec.normal = rec.front_face ? mapped : mapped * -1.0f;
 }
 
 // BVH traversal -> stack based to prevent recursion limit on gpu
@@ -187,6 +353,17 @@ __device__ bool bvh_hit(const GpuScene &scene, const GpuRay &ray, float t_min, f
       if (node.left >= 0) stack[top++] = node.left;
     }
   }
+  
+  // Apply bump map first, then normal map (same order as CPU)
+  if (hit_anything) {
+    apply_bump_map(scene, rec);
+    apply_normal_map(scene, rec);
+
+    // Offset along GEOMETRIC normal to prevent self-intersection
+    GpuVec3 geo_off = rec.front_face ? rec.geometric_normal : rec.geometric_normal * -1.0f;
+    rec.point = rec.point + geo_off * 1e-4f;
+  }
+
   return hit_anything;
 }
 
@@ -201,11 +378,60 @@ __device__ bool mat_scatter(const GpuScene &scene, const GpuMaterial &mat, const
     // cosine weighted direction
     GpuVec3 d = rand_cosine_direction(rng);
     GpuVec3 dir = u*d.x + v*d.y + w*d.z;
-    scattered = {rec.point + rec.normal * 1e-3f, dir};
+    scattered = {rec.point, dir};
     attenuation = sample_texture(scene, mat.albedo_tex_id, rec.u, rec.v, mat.albedo);
     return true;
   } 
-  
+  else if (mat.type == GpuMatType::GLOSSY) {
+    bool do_specular = (rand_f(rng) < mat.specular_strength);
+    if (do_specular) {
+      GpuVec3 unit_in = ray_in.direction.normalize();
+      float d = unit_in.dot(rec.normal);
+      GpuVec3 reflected = unit_in - rec.normal * (2.0f * d);
+      // GGX-like lobe around reflected direction
+      GpuVec3 w = reflected.normalize();
+      GpuVec3 a_vec = (fabsf(w.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
+      GpuVec3 v = w.cross(a_vec).normalize();
+      GpuVec3 u = w.cross(v);
+
+      float r1 = rand_f(rng);
+      float r2 = rand_f(rng);
+      float a2 = mat.roughness * mat.roughness;
+      float cos_theta = sqrtf((1.0f - r1) / (1.0f + (a2 * a2 - 1.0f) * r1));
+      float sin_theta = sqrtf(1.0f - cos_theta * cos_theta);
+      float phi = 2.0f * GPU_PI * r2;
+
+      GpuVec3 half_vec = (u * (sin_theta * cosf(phi)) + v * (sin_theta * sinf(phi)) + w * cos_theta).normalize();
+      GpuVec3 spec_dir = unit_in - half_vec * (2.0f * unit_in.dot(half_vec));
+
+      if (spec_dir.dot(rec.normal) <= 0) {
+        // Below surface, fall back to diffuse
+        GpuVec3 dw = rec.normal;
+        GpuVec3 da = (fabsf(dw.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
+        GpuVec3 dv = dw.cross(da).normalize();
+        GpuVec3 du = dw.cross(dv);
+        GpuVec3 dd = rand_cosine_direction(rng);
+        spec_dir = du*dd.x + dv*dd.y + dw*dd.z;
+      }
+
+      scattered = {rec.point, spec_dir};
+      float cos_i = fmaxf(0.0f, rec.normal.dot(spec_dir.normalize()));
+      float f0 = 0.04f;
+      float fresnel = f0 + (1.0f - f0) * powf(1.0f - cos_i, 5.0f);
+      attenuation = GpuVec3{fresnel, fresnel, fresnel};
+    } else {
+      GpuVec3 w = rec.normal;
+      GpuVec3 a = (fabsf(w.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
+      GpuVec3 v = w.cross(a).normalize();
+      GpuVec3 u = w.cross(v);
+      GpuVec3 d = rand_cosine_direction(rng);
+      GpuVec3 dir = u*d.x + v*d.y + w*d.z;
+      scattered = {rec.point, dir};
+      attenuation = sample_texture(scene, mat.albedo_tex_id, rec.u, rec.v, mat.albedo);
+    }
+    return true;
+  }
+
   else if (mat.type == GpuMatType::METAL) {
     GpuVec3 unit = ray_in.direction.normalize();
     float d = unit.dot(rec.normal);
@@ -229,9 +455,9 @@ __device__ bool mat_scatter(const GpuScene &scene, const GpuMaterial &mat, const
     GpuVec3 dir;
     if (cannot || refl > rand_f(rng)) dir = unit - rec.normal * (2.0f * unit.dot(rec.normal));
     else {
-    GpuVec3 perp = (unit + rec.normal * cos_t) * ratio;
-    GpuVec3 para = rec.normal * (-sqrtf(fabsf(1.0f - perp.dot(perp))));
-    dir = perp + para;
+      GpuVec3 perp = (unit + rec.normal * cos_t) * ratio;
+      GpuVec3 para = rec.normal * (-sqrtf(fabsf(1.0f - perp.dot(perp))));
+      dir = perp + para;
     }
 
     scattered = {rec.point, dir};
@@ -248,7 +474,12 @@ __device__ bool mat_scatter(const GpuScene &scene, const GpuMaterial &mat, const
 __device__ float scattering_pdf(const GpuMaterial &mat, const GpuHitRecord &rec, const GpuRay &scattered) {
   if (mat.type == GpuMatType::LAMBERTIAN) {
     float cos_t = rec.normal.dot(scattered.direction.normalize());
-    return cos_t < 0 ? 0.0f : cos_t/3.14159265f;
+    return cos_t < 0 ? 0.0f : cos_t / GPU_PI;
+  }
+  if (mat.type == GpuMatType::GLOSSY) {
+    float cos_t = rec.normal.dot(scattered.direction.normalize());
+    float diffuse_pdf = cos_t < 0 ? 0.0f : cos_t / GPU_PI;
+    return diffuse_pdf * (1.0f - mat.specular_strength) + 0.001f;
   }
   return 0.0f;
 }
@@ -270,8 +501,8 @@ __device__ GpuVec3 direct_light(const GpuScene &scene, const GpuHitRecord &rec, 
 
     GpuVec3 to_light_dir;
     GpuVec3 emission;
-    float   dist;
-    float   light_pdf;
+    float dist;
+    float light_pdf;
 
     if (light.type == GpuLightType::DIRECTIONAL) {
       to_light_dir = light.direction * -1.0f;
@@ -287,9 +518,9 @@ __device__ GpuVec3 direct_light(const GpuScene &scene, const GpuHitRecord &rec, 
       dist = diff.norm();
       to_light_dir = diff * (1.0f / dist);
       float cos_l = fabsf(rand_dir.dot(GpuVec3{-to_light_dir.x, -to_light_dir.y, -to_light_dir.z}));
-      float area = 4.0f * 3.14159265f * light.radius * light.radius;
+      float area = 4.0f * GPU_PI * light.radius * light.radius;
       light_pdf = (cos_l < 1e-6f) ? 0.0f : (dist*dist) / (cos_l * area);
-      emission  = light.color * light.intensity;
+      emission = light.color * light.intensity;
     } 
     else continue;
 
@@ -331,7 +562,7 @@ __device__ float total_light_pdf(const GpuScene &scene, const GpuVec3 &from, con
       float val = 1.0f - light.radius*light.radius / oc.dot(oc);
       if (val <= 0) continue;
       float cos_max    = sqrtf(val);
-      float solid_angle = 2.0f * 3.14159265f * (1.0f - cos_max);
+      float solid_angle = 2.0f * GPU_PI * (1.0f - cos_max);
       total += (solid_angle > 0) ? 1.0f / solid_angle : 0.0f;
     }
     // directional lights are delta — pdf=0 for random directions
@@ -349,10 +580,7 @@ __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, c
     GpuHitRecord rec{};
     if (!bvh_hit(scene, ray, 0.001f, 1e30f, rec)) {
       // missed — sky gradient
-      GpuVec3 unit = ray.direction.normalize();
-      float t = 0.5f * (unit.y + 1.0f);
-      GpuVec3 sky = GpuVec3{1,1,1} * (1-t) + GpuVec3{0.5f, 0.7f, 1.0f} * t;
-      result = result + throughput * sky;
+      result = result + throughput * sample_sky(scene, ray.direction);
       break;
     }
 
@@ -399,15 +627,15 @@ __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, c
 
 // Camera ray
 __device__ GpuRay get_camera_ray(const GpuCamera &cam, float s, float t, curandState *rng) {
-    GpuVec3 dir = cam.lower_left_corner + cam.horizontal * s + cam.vertical   * t - cam.origin;
-    return {cam.origin, dir};
+  GpuVec3 dir = cam.lower_left_corner + cam.horizontal * s + cam.vertical   * t - cam.origin;
+  return {cam.origin, dir};
 }
 
 // Main renderer kernel
 __global__ void render_kernel(float *fb, int width, int height, int samples, int max_depth, GpuCamera camera, GpuScene scene) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
-  if (x >= width ||y >= height) return;
+  if (x >= width || y >= height) return;
 
   int pixel = y * width + x;
 
@@ -477,14 +705,22 @@ void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, con
     size_t total_bytes  = total_pixels * 3;
 
     CUDA_CHECK(cudaMalloc(&d_scene.tex_data, total_bytes));
-    CUDA_CHECK(cudaMemcpy(d_scene.tex_data, host_scene.tex_data,
-                          total_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_scene.tex_data, host_scene.tex_data, total_bytes, cudaMemcpyHostToDevice));
 
     CUDA_CHECK(cudaMalloc(&d_scene.textures, host_scene.num_textures * sizeof(GpuTexture)));
-    CUDA_CHECK(cudaMemcpy(d_scene.textures, host_scene.textures,
-                          host_scene.num_textures * sizeof(GpuTexture), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_scene.textures, host_scene.textures, host_scene.num_textures * sizeof(GpuTexture), cudaMemcpyHostToDevice));
 
     printf("GPU textures: %d uploaded (%zu KB)\n", host_scene.num_textures, total_bytes/1024);
+  }
+
+  // Upload HDR sky if present
+  d_scene.sky = host_scene.sky;
+  d_scene.sky.data = nullptr;
+  if (host_scene.sky.enabled && host_scene.sky.data) {
+    size_t sky_bytes = host_scene.sky.width * host_scene.sky.height * 3 * sizeof(float);
+    CUDA_CHECK(cudaMalloc(&d_scene.sky.data, sky_bytes));
+    CUDA_CHECK(cudaMemcpy(d_scene.sky.data, host_scene.sky.data, sky_bytes, cudaMemcpyHostToDevice));
+    printf("GPU sky: %dx%d uploaded (%zu KB)\n", host_scene.sky.width, host_scene.sky.height, sky_bytes/1024);
   }
 
   if (!host_lights.empty()) {
@@ -516,4 +752,5 @@ void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, con
   cudaFree(d_scene.lights);
   if (d_scene.tex_data)  cudaFree(d_scene.tex_data);
   if (d_scene.textures)  cudaFree(d_scene.textures);
+  if (d_scene.sky.data) cudaFree(d_scene.sky.data);
 }

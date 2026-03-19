@@ -6,6 +6,12 @@
 #include "../core/camera.h"
 #include "../core/hittable.h"
 #include "../lights/light.h"
+#include "../textures/image_texture.h"
+#include "../textures/texture.h"
+
+
+inline std::shared_ptr<Texture> g_sky_texture = nullptr;
+inline float g_sky_intensity = 1.0f;
 
 using LightList = std::vector<std::shared_ptr<Light>>;
 struct Tile {
@@ -107,6 +113,14 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
     return result;
   }
   // sky
+  if (g_sky_texture) {
+    Vec3 unit = r.direction.normalize();
+    double theta = acos(fmax(-1.0, fmin(1.0, unit.y)));
+    double phi = atan2(unit.z, unit.x) + PI;
+    double u = phi / (2.0 * PI);
+    double v = theta / PI;
+    return g_sky_texture->value(u, v, Vec3(0,0,0)) * g_sky_intensity;
+  }
   Vec3 unit = r.direction.normalize();
   double t = 0.5*(unit.y + 1.0);
   Vec3 sky = Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t;

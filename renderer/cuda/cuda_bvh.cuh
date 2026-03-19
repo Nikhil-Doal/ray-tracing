@@ -14,6 +14,7 @@
 #include "../../materials/metal.h"
 #include "../../materials/dielectric.h"
 #include "../../materials/diffuse_light.h"
+#include "../../materials/glossy.h"
 #include "../../textures/texture.h"
 #include "../../textures/solid_color.h"
 #include "../../textures/image_texture.h"
@@ -65,6 +66,22 @@ inline GpuMaterial convert_material(Material *mat, std::unordered_map<Texture*, 
   m.is_transmissive = mat->is_transmissive();
   m.albedo_tex_id   = -1;
   m.emit_tex_id     = -1;
+    
+  m.normal_tex_id   = -1;
+  m.bump_tex_id     = -1;
+  m.normal_map_strength = (float)mat->normal_map_strength;
+  m.bump_strength       = (float)mat->bump_strength;
+  m.roughness = 0.3f;
+  m.specular_strength = 0.0f;
+
+  // Register normal map if present
+  if (mat->normal_map) {
+    m.normal_tex_id = register_texture(mat->normal_map.get(), tex_map, textures, tex_data);
+  }
+  // Register bump map if present
+  if (mat->bump_map) {
+    m.bump_tex_id = register_texture(mat->bump_map.get(), tex_map, textures, tex_data);
+  }
 
   if (auto *lamb = dynamic_cast<Lambertian*>(mat)) {
     m.type = GpuMatType::LAMBERTIAN;
@@ -74,8 +91,18 @@ inline GpuMaterial convert_material(Material *mat, std::unordered_map<Texture*, 
     HitRecord dummy{};
     Vec3 a = lamb -> albedo_at(dummy);
     m.albedo = {(float)a.x, (float)a.y, (float)a.z};
-  } 
-  
+  }
+
+  else if (auto *glossy = dynamic_cast<Glossy*>(mat)) {
+    m.type = GpuMatType::GLOSSY;
+    m.albedo_tex_id = register_texture(glossy->albedo.get(), tex_map, textures, tex_data);
+    HitRecord dummy{};
+    Vec3 a = glossy->albedo_at(dummy);
+    m.albedo = {(float)a.x, (float)a.y, (float)a.z};
+    m.roughness = (float)glossy->roughness;
+    m.specular_strength = (float)glossy->specular_strength;
+  }
+ 
   else if (auto *met = dynamic_cast<Metal*>(mat)) {
     m.type = GpuMatType::METAL;
     m.albedo_tex_id = register_texture(met->albedo.get(), tex_map, textures, tex_data);
@@ -126,7 +153,7 @@ inline int get_or_add_material(Material *mat, std::unordered_map<Material*, int>
 }
 
 // Recursively collect all primitives frm CPU hittable tree into flat array handling BVHNode, HittableList, Sphere, Triangle
-inline void collect_primitives( const Hittable *node, std::vector<GpuPrimitive> &primitives, std::unordered_map<Material*, int> &mat_map, std::vector<GpuMaterial> &mats, std::unordered_map<Texture*, int>  &tex_map, std::vector<GpuTexture> &textures, std::vector<unsigned char> &tex_data) {
+inline void collect_primitives(const Hittable *node, std::vector<GpuPrimitive> &primitives, std::unordered_map<Material*, int> &mat_map, std::vector<GpuMaterial> &mats, std::unordered_map<Texture*, int>  &tex_map, std::vector<GpuTexture> &textures, std::vector<unsigned char> &tex_data) {
   if (!node) return;
   if (auto *bvh = dynamic_cast<const BVHNode*>(node)) {
     collect_primitives(bvh->left.get(), primitives, mat_map, mats, tex_map, textures, tex_data);
@@ -157,6 +184,14 @@ inline void collect_primitives( const Hittable *node, std::vector<GpuPrimitive> 
     p.triangle.uv0 = {(float)tri->uv0.x, (float)tri->uv0.y, 0};
     p.triangle.uv1 = {(float)tri->uv1.x, (float)tri->uv1.y, 0};
     p.triangle.uv2 = {(float)tri->uv2.x, (float)tri->uv2.y, 0};
+        // Export per-vertex normals
+    p.triangle.has_vertex_normals = tri->has_vertex_normals;
+    if (tri->has_vertex_normals) {
+      p.triangle.n0 = {(float)tri->n0.x, (float)tri->n0.y, (float)tri->n0.z};
+      p.triangle.n1 = {(float)tri->n1.x, (float)tri->n1.y, (float)tri->n1.z};
+      p.triangle.n2 = {(float)tri->n2.x, (float)tri->n2.y, (float)tri->n2.z};
+    }
+
     p.mat_id = get_or_add_material(tri->mat.get(), mat_map, mats, tex_map, textures, tex_data);
     primitives.push_back(p);
   }
