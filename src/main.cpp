@@ -103,7 +103,7 @@ int main() {
   // HDR sky — visible through the window openings
   // ================================================================
   g_sky_texture = std::make_shared<HdrTexture>("../../assets/sky.hdr");
-  g_sky_intensity = 2.0f;
+  g_sky_intensity = 0.5f;
 
   // ================================================================
   // Materials
@@ -264,7 +264,7 @@ int main() {
     Vec3 lpos(0, cy + 3.0, wz);
     double lrad = 1.5;
     Vec3 lcol(1.0, 0.92, 0.8); // warm sunlight
-    double lint = 25.0;         // strong so shafts are bright
+    double lint = 40.0;         // strong so shafts are bright
 
     auto lmat = std::make_shared<DiffuseLight>(lcol * lint);
     world.add(std::make_shared<Sphere>(lpos, lrad, lmat));
@@ -304,11 +304,11 @@ int main() {
   vol->bounds = VolumeAABB{
     Vec3(-half_w, 0, -half_d),
     Vec3(half_w, room_h, half_d)};
-  vol->sigma_s = 0.06;   // scattering density — dusty air
-  vol->sigma_a = 0.004;  // slight warm absorption
-  vol->g       = 0.75;   // strong forward scattering
+  vol->sigma_s = 0.12;   // scattering density — dusty air
+  vol->sigma_a = 0.002;  // slight warm absorption
+  vol->g       = 0.5;   // strong forward scattering
   g_volume = vol;
-  g_volume_steps = 32;   // 32 for speed, 64 for cleaner result
+  g_volume_steps = 20;   // 32 for speed, 64 for cleaner result
 
   // ================================================================
   // Build BVH
@@ -321,8 +321,8 @@ int main() {
   // Slightly upward angle so we see the ceiling gaps and light shafts
   // ================================================================
   double aspect = double(width) / height;
-  Vec3 lookfrom(0, 4.0, 16);    // near the +Z end, eye height
-  Vec3 lookat(0, 6.0, -5);      // looking forward and slightly up
+  Vec3 lookfrom(0, 3.0, 14);    // near the +Z end, eye height
+  Vec3 lookat(0, 10.0, 0.0);      // looking forward and slightly up
   double focus_dist = (lookfrom - lookat).norm();
   Camera camera(lookfrom, lookat, Vec3(0,1,0), 70, aspect, 0.0, focus_dist);
 
