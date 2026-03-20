@@ -49,14 +49,19 @@ public:
     // rotate ray into object space using inverse rotation
     Vec3 ro = rotate_inverse(ray.origin);
     Vec3 rd = rotate_inverse(ray.direction);
-
     Ray rotated_ray(ro, rd);
+
     if (!object->hit(rotated_ray, t_min, t_max, rec)) return false;
 
     // rotate hit results back to world space
     rec.point = rotate(rec.point);
     Vec3 n = rotate(rec.normal).normalize();
-    rec.set_face_normal(Ray(rec.point, ray.direction), n);
+    rec.set_face_normal(rotated_ray, n);
+
+    if (rec.has_tbn) {
+      rec.tangent   = rotate(rec.tangent).normalize();
+      rec.bitangent = rotate(rec.bitangent).normalize();
+    }
     return true;
   }
 

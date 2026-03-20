@@ -142,6 +142,18 @@ struct GpuSkyTex {
   bool enabled;
 };
 
+struct GpuVolume {
+  GpuVec3 aabb_min;
+  GpuVec3 aabb_max;
+  float sigma_s;      // scattering coefficient
+  float sigma_a;      // absorption coefficient
+  float g;            // HG anisotropy [-1,1]
+  bool  enabled;
+
+  __host__ __device__ float sigma_t() const { return sigma_s + sigma_a; }
+};
+
+
 // Full scene to be passed to GPU kernel - at this point all the pointers are gpu device ptrs after upload
 struct GpuScene {
   GpuPrimitive *primitives;
@@ -162,4 +174,5 @@ struct GpuScene {
   int num_textures;
 
   GpuSkyTex sky;
+  GpuVolume volume;
 };

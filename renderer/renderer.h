@@ -8,10 +8,14 @@
 #include "../lights/light.h"
 #include "../textures/image_texture.h"
 #include "../textures/texture.h"
+#include "volumetric.h"
 
 
 inline std::shared_ptr<Texture> g_sky_texture = nullptr;
 inline float g_sky_intensity = 1.0f;
+
+inline std::shared_ptr<VolumeRegion> g_volume = nullptr;
+inline int g_volume_steps = 32;
 
 using LightList = std::vector<std::shared_ptr<Light>>;
 struct Tile {
@@ -72,47 +76,7 @@ inline double total_light_pdf(const Vec3 &from, const Vec3 &dir, const LightList
   return total;
 }
 
-inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &lights, int depth, double prev_bsdf_pdf = -1.0) {
-  if (depth <= 0) return Vec3(0,0,0);
-  HitRecord rec;
-
-  if (world.hit(r, 0.001, 1000, rec)) {
-    Ray scattered;
-    Vec3 attenuation;
-
-    // emissive hit
-    if (rec.mat->is_emissive()) {
-      Vec3 Le = rec.front_face ? rec.mat->emit(rec.u, rec.v, rec.point) : Vec3(0,0,0);
-
-      if (prev_bsdf_pdf < 0) return Le;
-
-      // diffuse bounce - check against NEE to prevent double counting
-      double light_pdf = total_light_pdf(r.origin, r.direction, lights);
-      double mis_weight = (light_pdf > 0) ? power_heuristic(prev_bsdf_pdf, light_pdf) : 1.0;
-      return Le * mis_weight;
-    }
-
-    // for non-emissive hitlist
-    if (!rec.mat->scatter(r, rec, attenuation, scattered)) return Vec3(0,0,0);
-    Vec3 result(0,0,0);
-
-    // do NEE at every diffuse bounce
-    if (!rec.mat->is_transmissive()) result = result + direct_light(r, rec, world, lights);
-    double bsdf_pdf = rec.mat->scattering_pdf(r, rec, scattered);
-
-    if (bsdf_pdf <= 0) {
-      // specular — no pdf weighting needed
-      result = result + ray_color(scattered, world, lights, depth - 1, -1.0) * attenuation;
-    } 
-    else {
-      // diffuse — explicit cos/pdf for correctness with any BSDF
-      double cos_theta = fmax(0.0, rec.normal.dot(scattered.direction.normalize()));
-      Vec3 indirect = ray_color(scattered, world, lights, depth - 1, bsdf_pdf);
-      result = result + indirect * attenuation * (cos_theta / bsdf_pdf);
-    }
-    return result;
-  }
-  // sky
+inline Vec3 sky_color(const Ray &r) {
   if (g_sky_texture) {
     Vec3 unit = r.direction.normalize();
     double theta = acos(fmax(-1.0, fmin(1.0, unit.y)));
@@ -122,9 +86,73 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
     return g_sky_texture->value(u, v, Vec3(0,0,0)) * g_sky_intensity;
   }
   Vec3 unit = r.direction.normalize();
-  double t = 0.5*(unit.y + 1.0);
-  Vec3 sky = Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t;
-  return sky;
+  double t = 0.5 * (unit.y + 1.0);
+  return Vec3(1,1,1) * (1.0 - t) + Vec3(0.5, 0.7, 1.0) * t;
+}
+
+inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &lights, int depth, double prev_bsdf_pdf = -1.0) {
+  if (depth <= 0) return Vec3(0,0,0);
+  HitRecord rec;
+
+  bool hit = world.hit(r, 0.001, 1000, rec);
+  double t_surface = hit ? rec.t : 1e30;
+
+  // ---- volumetric god rays ----
+  // Computed first because transmittance attenuates the surface/sky term.
+  Vec3 vol_contribution(0,0,0);
+  double transmittance = 1.0;
+  if (g_volume) {
+    double t0, t1;
+    if (g_volume->bounds.intersect(r, t0, t1)) {
+      t1 = std::min(t1, t_surface);
+      if (t1 > t0) {
+        // Beer-Lambert transmittance across the volume segment
+        transmittance = exp(-g_volume->sigma_t() * (t1 - t0));
+        // Single-scattering in-scatter from lights
+        vol_contribution = integrate_volume(r, t0, t1, *g_volume, world, lights, g_volume_steps);
+      }
+    }
+  }
+
+  if (!hit) {
+    return vol_contribution + sky_color(r) * transmittance;
+  }
+
+  Ray scattered;
+  Vec3 attenuation;
+
+  // emissive hit
+  if (rec.mat->is_emissive()) {
+    Vec3 Le = rec.front_face ? rec.mat->emit(rec.u, rec.v, rec.point) : Vec3(0,0,0);
+    Vec3 surface;
+    if (prev_bsdf_pdf < 0) surface = Le;
+    else {
+      double light_pdf = total_light_pdf(r.origin, r.direction, lights);
+      double mis_weight = (light_pdf > 0) ? power_heuristic(prev_bsdf_pdf, light_pdf) : 1.0;
+      surface = Le * mis_weight;
+    }
+    return vol_contribution + surface * transmittance;
+  }
+
+  // for non-emissive hitlist
+  if (!rec.mat->scatter(r, rec, attenuation, scattered)) return vol_contribution;
+  Vec3 result(0,0,0);
+
+  // do NEE at every diffuse bounce
+  if (!rec.mat->is_transmissive()) result = result + direct_light(r, rec, world, lights);
+  double bsdf_pdf = rec.mat->scattering_pdf(r, rec, scattered);
+
+  if (bsdf_pdf <= 0) {
+    // specular — no pdf weighting needed
+    result = result + ray_color(scattered, world, lights, depth - 1, -1.0) * attenuation;
+  } 
+  else {
+    // diffuse — explicit cos/pdf for correctness with any BSDF
+    double cos_theta = fmax(0.0, rec.normal.dot(scattered.direction.normalize()));
+    Vec3 indirect = ray_color(scattered, world, lights, depth - 1, bsdf_pdf);
+    result = result + indirect * attenuation * (cos_theta / bsdf_pdf);
+  }
+  return vol_contribution + result * transmittance;
 }
 
 inline void render_rows(int start_row, int end_row, int width, int height, int samples_per_pixel, int max_depth, const Camera &camera, const Hittable &world, const LightList &lights, std::vector<Vec3> &framebuffer) {

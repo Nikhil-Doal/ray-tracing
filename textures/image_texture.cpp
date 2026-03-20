@@ -14,8 +14,8 @@ ImageTexture::ImageTexture(const std::string &filename, bool linear) : is_linear
 
 ImageTexture::~ImageTexture() {
   for (size_t i = 1; i < mipmaps.size(); ++i) {
-      delete [] mipmaps[i].data;
-    }
+      delete[] mipmaps[i].data;
+  }
   if (data) stbi_image_free(data);
 }
 

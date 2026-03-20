@@ -34,6 +34,31 @@ __device__ inline GpuVec3 rand_cosine_direction(curandState *s) {
   return {x, y, z};
 }
 
+// Henyey-Greenstein phase function
+__device__ inline float hg_phase(float cos_theta, float g) {
+    float g2 = g * g;
+    float denom = 1.0f + g2 - 2.0f * g * cos_theta;
+    return (1.0f - g2) / (4.0f * GPU_PI * denom * sqrtf(denom));
+}
+
+// Sample a direction from the HG distribution
+__device__ GpuVec3 hg_sample(const GpuVec3 &wo, float g, curandState *s) {
+    float r1 = rand_f(s), r2 = rand_f(s);
+    float cos_theta;
+    if (fabsf(g) < 1e-3f) {
+        cos_theta = 1.0f - 2.0f * r1;
+    } else {
+        float sqr = (1.0f - g*g) / (1.0f - g + 2.0f*g*r1);
+        cos_theta = (1.0f + g*g - sqr*sqr) / (2.0f * g);
+    }
+    float sin_theta = sqrtf(fmaxf(0.0f, 1.0f - cos_theta*cos_theta));
+    float phi = 2.0f * GPU_PI * r2;
+    GpuVec3 u = (fabsf(wo.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
+    GpuVec3 v = wo.cross(u).normalize();
+    GpuVec3 w = wo.cross(v);
+    return (v*(cosf(phi)*sin_theta) + w*(sinf(phi)*sin_theta) + wo*cos_theta).normalize();
+}
+
 // bilinear texture sampling
 __device__ GpuVec3 sample_texture(const GpuScene &scene, int tex_id, float u, float v, const GpuVec3 &solid_color) {
   if (tex_id < 0 || tex_id >= scene.num_textures || !scene.tex_data) return solid_color;
@@ -123,27 +148,22 @@ __device__ GpuVec3 sample_sky(const GpuScene &scene, const GpuVec3 &dir) {
 
   GpuVec3 unit = dir.normalize();
   float theta = acosf(fmaxf(-1.0f, fminf(1.0f, unit.y)));
-  float phi = atan2f(unit.z, unit.x) + GPU_PI;
-
+  float phi   = atan2f(unit.z, unit.x) + GPU_PI;
   float u = phi / (2.0f * GPU_PI);
   float v = theta / GPU_PI;
-
-  float fi = u * (scene.sky.width - 1);
-  float fj = v * (scene.sky.height - 1);
+  float fi = u*(scene.sky.width-1), fj = v*(scene.sky.height-1);
   int i0 = (int)fi, j0 = (int)fj;
-  int i1 = i0 + 1 < scene.sky.width  ? i0 + 1 : i0;
-  int j1 = j0 + 1 < scene.sky.height ? j0 + 1 : j0;
-  float tx = fi - i0, ty = fj - j0;
-
+  int i1 = i0+1 < scene.sky.width  ? i0+1 : i0;
+  int j1 = j0+1 < scene.sky.height ? j0+1 : j0;
+  float tx = fi-i0, ty = fj-j0;
+  // HDR floats: already linear, multiply by 3 channels stride
   auto get = [&](int ii, int jj) -> GpuVec3 {
-    int idx = (jj * scene.sky.width + ii) * 3;
-    return {scene.sky.data[idx], scene.sky.data[idx+1], scene.sky.data[idx+2]};
+      int idx = (jj * scene.sky.width + ii) * 3;
+      // FIX: sky data is float RGB — read directly, NO gamma pow()
+      return {scene.sky.data[idx], scene.sky.data[idx+1], scene.sky.data[idx+2]};
   };
-
-  GpuVec3 c00 = get(i0, j0), c10 = get(i1, j0);
-  GpuVec3 c01 = get(i0, j1), c11 = get(i1, j1);
-  GpuVec3 c0 = c00*(1-tx) + c10*tx;
-  GpuVec3 c1 = c01*(1-tx) + c11*tx;
+  GpuVec3 c0 = get(i0,j0)*(1-tx) + get(i1,j0)*tx;
+  GpuVec3 c1 = get(i0,j1)*(1-tx) + get(i1,j1)*tx;
   return (c0*(1-ty) + c1*ty) * scene.sky.intensity;
 }
 
@@ -570,59 +590,151 @@ __device__ float total_light_pdf(const GpuScene &scene, const GpuVec3 &from, con
   return total;
 }
 
+// ---- Volumetric in-scatter (god rays) ----
+// Evaluates single-scattering from all lights along [t0, t1] of the ray.
+// Returns attenuated in-scatter radiance + transmittance factor.
+__device__ GpuVec3 integrate_volume(
+    const GpuRay &ray, float t0, float t1,
+    const GpuScene &scene, curandState *rng,
+    float &out_transmittance,
+    int n_steps = 32
+) {
+    const GpuVolume &vol = scene.volume;
+    if (!vol.enabled || vol.sigma_t() < 1e-6f) {
+        out_transmittance = 1.0f;
+        return GpuVec3(0,0,0);
+    }
+    float step = (t1 - t0) / n_steps;
+    GpuVec3 result(0,0,0);
+    float transmittance = 1.0f;
+    for (int i = 0; i < n_steps; ++i) {
+        float t_mid = t0 + (i + 0.5f) * step;
+        GpuVec3 p = ray.at(t_mid);
+        transmittance *= expf(-vol.sigma_t() * step);
+        // sample all lights
+        for (int li = 0; li < scene.num_lights; ++li) {
+            const GpuLight &light = scene.lights[li];
+            GpuVec3 to_light_dir;
+            GpuVec3 emission;
+            float dist, light_pdf;
+            if (light.type == GpuLightType::DIRECTIONAL) {
+                to_light_dir = light.direction * -1.0f;
+                dist = 1e6f;
+                emission = light.color * light.intensity;
+                light_pdf = 1.0f;
+            } else if (light.type == GpuLightType::SPHERE_AREA) {
+                GpuVec3 rd = rand_in_unit_sphere(rng).normalize();
+                GpuVec3 pt = light.position + rd * light.radius;
+                GpuVec3 diff = pt - p;
+                dist = diff.norm();
+                to_light_dir = diff * (1.0f / dist);
+                emission = light.color * light.intensity;
+                light_pdf = 1.0f;
+            } else continue;
+            if (light_pdf <= 0.0f) continue;
+            // shadow check
+            GpuRay shadow{p + to_light_dir * 1e-3f, to_light_dir};
+            GpuHitRecord srec{};
+            bool blocked = bvh_hit(scene, shadow, 0.001f, dist - 0.01f, srec);
+            if (blocked && !scene.materials[srec.mat_id].is_emissive) continue;
+            // Beer-Lambert transmittance through remaining volume to the light
+            float vol_dist = 0.0f;
+            {
+                float va, vb;
+                GpuBVHNode vol_node;
+                vol_node.aabb_min = vol.aabb_min;
+                vol_node.aabb_max = vol.aabb_max;
+                GpuRay vol_ray{p, to_light_dir};
+                if (aabb_hit(vol_node, vol_ray, 0.001f, dist)) {
+                  vol_dist = dist;
+                }
+              }
+            float trans_to_light = expf(-vol.sigma_t() * vol_dist);
+            // HG phase function
+            float cos_theta = ray.direction.normalize().dot(to_light_dir);
+            float g = vol.g;
+            float g2 = g * g;
+            float denom = 1.0f + g2 - 2.0f * g * cos_theta;
+            float phase = (1.0f - g2) / (4.0f * GPU_PI * denom * sqrtf(denom));
+            result = result + emission * (transmittance * vol.sigma_s * phase * trans_to_light * step / light_pdf);
+        }
+    }
+    out_transmittance = transmittance;
+    return result;
+}
+
 // ray color function - not recursive to prevent gpu stack overflow
 __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, curandState *rng) {
-  GpuVec3 throughput{1,1,1};
-  GpuVec3 result{0,0,0};
-  float   prev_bsdf_pdf = -1.0f; // -1 = camera ray / specular
+    GpuVec3 throughput{1,1,1};
+    GpuVec3 result{0,0,0};
+    float prev_bsdf_pdf = -1.0f;
 
-  for (int depth = 0; depth < max_depth; ++depth) {
-    GpuHitRecord rec{};
-    if (!bvh_hit(scene, ray, 0.001f, 1e30f, rec)) {
-      // missed — sky gradient
-      result = result + throughput * sample_sky(scene, ray.direction);
-      break;
+    for (int depth = 0; depth < max_depth; ++depth) {
+        GpuHitRecord rec{};
+        bool hit = bvh_hit(scene, ray, 0.001f, 1e30f, rec);
+        float t_surface = hit ? rec.t : 1e30f;
+
+        // ---- Volumetric integration along this ray segment ----
+        GpuVec3 vol_contrib(0,0,0);
+        float vol_trans = 1.0f;
+        if (scene.volume.enabled) {
+            float t0, t1;
+            GpuBVHNode vol_node;
+            vol_node.aabb_min = scene.volume.aabb_min;
+            vol_node.aabb_max = scene.volume.aabb_max;
+            if (aabb_hit(vol_node, ray, 0.001f, t_surface)) {
+              t0 = 0.001f;
+              t1 = t_surface;
+              vol_contrib = integrate_volume(ray, t0, t1, scene, rng, vol_trans, 32);
+            }
+        }
+        result = result + throughput * vol_contrib;
+
+        if (!hit) {
+            result = result + throughput * sample_sky(scene, ray.direction) * vol_trans;
+            break;
+        }
+
+        const GpuMaterial &mat = scene.materials[rec.mat_id];
+
+        if (mat.is_emissive) {
+            GpuVec3 Le = rec.front_face
+                ? sample_texture(scene, mat.emit_tex_id, rec.u, rec.v, mat.emit_color)
+                : GpuVec3(0,0,0);
+            if (prev_bsdf_pdf < 0) result = result + throughput * Le * vol_trans;
+            else {
+                float lp = total_light_pdf(scene, ray.origin, ray.direction);
+                float mis = (lp > 0) ? power_heuristic(prev_bsdf_pdf, lp) : 1.0f;
+                result = result + throughput * Le * mis * vol_trans;
+            }
+            break;
+        }
+
+        if (!mat.is_transmissive)
+            result = result + throughput * direct_light(scene, rec, ray, rng) * vol_trans;
+
+        GpuVec3 attenuation;
+        GpuRay scattered;
+        if (!mat_scatter(scene, mat, ray, rec, attenuation, scattered, rng)) break;
+
+        float bsdf_pdf = scattering_pdf(mat, rec, scattered);
+        if (bsdf_pdf > 0) {
+            float cos_theta = fmaxf(0.0f, rec.normal.dot(scattered.direction.normalize()));
+            throughput = throughput * attenuation * (cos_theta / bsdf_pdf) * vol_trans;
+        } else {
+            throughput = throughput * attenuation * vol_trans;
+        }
+        prev_bsdf_pdf = (bsdf_pdf > 0) ? bsdf_pdf : -1.0f;
+        ray = scattered;
+
+        // Russian roulette
+        if (depth > 3) {
+            float p = fmaxf(throughput.x, fmaxf(throughput.y, throughput.z));
+            if (rand_f(rng) > p) break;
+            throughput = throughput * (1.0f / p);
+        }
     }
-
-    const GpuMaterial &mat = scene.materials[rec.mat_id];
-
-    // emissive hit — MIS weighted
-    if (mat.is_emissive) {
-      GpuVec3 Le = rec.front_face ? sample_texture(scene, mat.emit_tex_id, rec.u, rec.v, mat.emit_color) : GpuVec3(0,0,0);
-      if (prev_bsdf_pdf < 0) result = result + throughput * Le;
-      else {
-        // diffuse bounce — weight against NEE
-        float lp  = total_light_pdf(scene, ray.origin, ray.direction);
-        float mis = (lp > 0) ? power_heuristic(prev_bsdf_pdf, lp) : 1.0f;
-        result = result + throughput * Le * mis;
-      }
-      break;
-    }
-
-    // NEE direct lighting at every diffuse bounce
-    if (!mat.is_transmissive) result = result + throughput * direct_light(scene, rec, ray, rng);
-    
-    // scatter for next bounce
-    GpuVec3 attenuation;
-    GpuRay  scattered;
-    if (!mat_scatter(scene, mat, ray, rec, attenuation, scattered, rng)) break;
-
-    float bsdf_pdf = scattering_pdf(mat, rec, scattered);
-    if (bsdf_pdf > 0) {
-      float cos_theta = fmaxf(0.0f, rec.normal.dot(scattered.direction.normalize()));
-      throughput = throughput * attenuation * (cos_theta / bsdf_pdf);
-    } else throughput = throughput * attenuation; // specular
-    prev_bsdf_pdf = (bsdf_pdf > 0) ? bsdf_pdf : -1.0f;
-    ray = scattered;
-
-    // Russian roulette :) after depth 3 — unbiased early termination
-    if (depth > 3) {
-      float p = fmaxf(throughput.x, fmaxf(throughput.y, throughput.z));
-      if (rand_f(rng) > p) break;
-      throughput = throughput * (1.0f / p);
-    }
-  }
-  return result;
+    return result;
 }
 
 // Camera ray
@@ -749,7 +861,7 @@ void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, con
   cudaFree(d_scene.primitives);
   cudaFree(d_scene.materials);
   cudaFree(d_scene.bvh_nodes);
-  cudaFree(d_scene.lights);
+  if (d_scene.lights)   cudaFree(d_scene.lights);  
   if (d_scene.tex_data)  cudaFree(d_scene.tex_data);
   if (d_scene.textures)  cudaFree(d_scene.textures);
   if (d_scene.sky.data) cudaFree(d_scene.sky.data);
