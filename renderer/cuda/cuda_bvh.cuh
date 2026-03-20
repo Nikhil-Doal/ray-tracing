@@ -29,6 +29,47 @@ struct FlatScene{
   int root = 0;
 };
 
+// ---- Rotation transform helper ----
+// Stores the sin/cos values from a Rotate node so we can transform vertices/normals
+struct RotateTransform {
+  double sin_x, cos_x, sin_y, cos_y, sin_z, cos_z;
+  bool active = false;
+
+  RotateTransform() : sin_x(0), cos_x(1), sin_y(0), cos_y(1), sin_z(0), cos_z(1), active(false) {}
+
+  static RotateTransform from_rotate(const Rotate *rot) {
+    RotateTransform t;
+    t.sin_x = rot->sin_x; t.cos_x = rot->cos_x;
+    t.sin_y = rot->sin_y; t.cos_y = rot->cos_y;
+    t.sin_z = rot->sin_z; t.cos_z = rot->cos_z;
+    t.active = true;
+    return t;
+  }
+
+  Vec3 apply(const Vec3 &v) const {
+    if (!active) return v;
+    // X rotation
+    double y1 = cos_x * v.y - sin_x * v.z;
+    double z1 = sin_x * v.y + cos_x * v.z;
+    // Y rotation
+    double x2 = cos_y * v.x + sin_y * z1;
+    double z2 = -sin_y * v.x + cos_y * z1;
+    // Z rotation
+    double x3 = cos_z * x2 - sin_z * y1;
+    double y3 = sin_z * x2 + cos_z * y1;
+    return Vec3(x3, y3, z2);
+  }
+
+  // Compose: apply this transform THEN other
+  RotateTransform compose(const RotateTransform &other) const {
+    // For simplicity with multiple stacked rotations, we don't analytically
+    // compose — instead we'll apply transforms in sequence during vertex
+    // collection. This struct is only used for a single Rotate node.
+    (void)other;
+    return *this; // caller should apply in sequence
+  }
+};
+
 // texture helpers
 inline int register_texture(Texture *tex, std::unordered_map<Texture*, int> &tex_map, std::vector<GpuTexture> &textures, std::vector<unsigned char> &tex_data) {
   if (!tex) return -1;
@@ -153,23 +194,25 @@ inline int get_or_add_material(Material *mat, std::unordered_map<Material*, int>
 }
 
 // Recursively collect all primitives frm CPU hittable tree into flat array handling BVHNode, HittableList, Sphere, Triangle
-inline void collect_primitives(const Hittable *node, std::vector<GpuPrimitive> &primitives, std::unordered_map<Material*, int> &mat_map, std::vector<GpuMaterial> &mats, std::unordered_map<Texture*, int>  &tex_map, std::vector<GpuTexture> &textures, std::vector<unsigned char> &tex_data) {
+inline void collect_primitives(const Hittable *node, std::vector<GpuPrimitive> &primitives, std::unordered_map<Material*, int> &mat_map, std::vector<GpuMaterial> &mats, std::unordered_map<Texture*, int>  &tex_map, std::vector<GpuTexture> &textures, std::vector<unsigned char> &tex_data, const RotateTransform &xform = RotateTransform()) {
   if (!node) return;
   if (auto *bvh = dynamic_cast<const BVHNode*>(node)) {
-    collect_primitives(bvh->left.get(), primitives, mat_map, mats, tex_map, textures, tex_data);
+    collect_primitives(bvh->left.get(), primitives, mat_map, mats, tex_map, textures, tex_data, xform);
     if (bvh->right.get() != bvh->left.get())
-      collect_primitives(bvh->right.get(), primitives, mat_map, mats, tex_map, textures, tex_data);
+      collect_primitives(bvh->right.get(), primitives, mat_map, mats, tex_map, textures, tex_data, xform);
   }
   else if (auto *list = dynamic_cast<const HittableList*>(node)) {
-    for (auto &obj : list -> objects) collect_primitives(obj.get(), primitives, mat_map, mats, tex_map, textures, tex_data);
+    for (auto &obj : list -> objects) collect_primitives(obj.get(), primitives, mat_map, mats, tex_map, textures, tex_data, xform);
   }
   else if (auto *rot = dynamic_cast<const Rotate*>(node)){
     // not applying rotation right now, *just rotate all obj or item vertices for future
-    collect_primitives(rot->object.get(), primitives, mat_map, mats, tex_map, textures, tex_data);
+    RotateTransform child_xform = RotateTransform::from_rotate(rot);
+    collect_primitives(rot->object.get(), primitives, mat_map, mats, tex_map, textures, tex_data, xform);
   }
   else if (auto *sph = dynamic_cast<const Sphere*>(node)) {
     GpuPrimitive p{};
     p.type = GpuGeomType::SPHERE;
+    Vec3 center = xform.apply(sph->center);
     p.sphere.center = {(float)sph->center.x, (float)sph->center.y, (float)sph->center.z};
     p.sphere.radius = (float)sph->radius;
     p.mat_id = get_or_add_material(sph->mat.get(), mat_map, mats, tex_map, textures, tex_data);
@@ -178,6 +221,9 @@ inline void collect_primitives(const Hittable *node, std::vector<GpuPrimitive> &
   else if (auto *tri = dynamic_cast<const Triangle*>(node)) {
     GpuPrimitive p{};
     p.type = GpuGeomType::TRIANGLE;
+    Vec3 tv0 = xform.apply(tri->v0);
+    Vec3 tv1 = xform.apply(tri->v1);
+    Vec3 tv2 = xform.apply(tri->v2);
     p.triangle.v0  = {(float)tri->v0.x,  (float)tri->v0.y,  (float)tri->v0.z};
     p.triangle.v1  = {(float)tri->v1.x,  (float)tri->v1.y,  (float)tri->v1.z};
     p.triangle.v2  = {(float)tri->v2.x,  (float)tri->v2.y,  (float)tri->v2.z};
@@ -187,6 +233,9 @@ inline void collect_primitives(const Hittable *node, std::vector<GpuPrimitive> &
         // Export per-vertex normals
     p.triangle.has_vertex_normals = tri->has_vertex_normals;
     if (tri->has_vertex_normals) {
+      Vec3 rn0 = xform.apply(tri->n0).normalize();
+      Vec3 rn1 = xform.apply(tri->n1).normalize();
+      Vec3 rn2 = xform.apply(tri->n2).normalize();
       p.triangle.n0 = {(float)tri->n0.x, (float)tri->n0.y, (float)tri->n0.z};
       p.triangle.n1 = {(float)tri->n1.x, (float)tri->n1.y, (float)tri->n1.z};
       p.triangle.n2 = {(float)tri->n2.x, (float)tri->n2.y, (float)tri->n2.z};

@@ -27,7 +27,6 @@ struct HitRecord {
     front_face = ray.direction.dot(outward_normal) < 0;
     normal = front_face ? outward_normal : outward_normal * -1;
   }
-
 };
 
 class Hittable {

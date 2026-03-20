@@ -5,18 +5,14 @@
 #include <memory>
 #include <cmath>
 
-// Glossy material: diffuse (Lambertian) + specular (GGX microfacet)
-// This is what makes normal maps look correct — the specular lobe
-// creates sharp highlights that shift with perturbed normals.
-// Pure Lambertian barely shows normal maps because diffuse lighting
-// varies smoothly (cos_theta changes are subtle).
+// Glossy material used for normal maps -> diffuse from lambertian + specular
 class Glossy : public Material {
 public:
   std::shared_ptr<Texture> albedo;
   double roughness;    // 0 = mirror, 1 = fully rough
   double specular_strength;  // 0-1, how much specular vs diffuse
 
-  Glossy(std::shared_ptr<Texture> a, double roughness = 0.3, double spec = 0.5)
+  Glossy(std::shared_ptr<Texture> a, double roughness = 0.3, double spec = 0.1)
     : albedo(a), roughness(roughness), specular_strength(spec) {}
 
   bool scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const override {
@@ -40,11 +36,7 @@ public:
       double sin_theta = sqrt(1.0 - cos_theta * cos_theta);
       double phi = 2.0 * PI * r2;
       
-      Vec3 half_vec = onb.local(Vec3(
-        sin_theta * cos(phi),
-        sin_theta * sin(phi),
-        cos_theta
-      )).normalize();
+      Vec3 half_vec = onb.local(Vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta)).normalize();
 
       // Reflect incoming around the half vector
       Vec3 spec_dir = reflect(unit_in, half_vec);

@@ -28,6 +28,35 @@ inline double power_heuristic(double pdf_a, double pdf_b) {
     return (a2 + b2) < 1e-6 ? 0.0 : a2 / (a2 + b2);
 }
 
+// Accumulates Beer-Lambert attenuation through each glass surface.
+inline bool trace_shadow(const Ray &origin_ray, const Hittable &world, double dist, Vec3 &shadow_atten) {
+  shadow_atten = Vec3(1, 1, 1);
+  Ray ray = origin_ray;
+  double remaining = dist - 0.01;
+  int max_bounces = 16; // prevent infinite loops in degenerate geometry
+
+  for (int i = 0; i < max_bounces && remaining > 0.001; ++i) {
+    HitRecord shadow_rec;
+    if (!world.hit(ray, 0.001, remaining, shadow_rec)) return true; // reached the light unblocked
+
+    if (shadow_rec.mat->is_emissive()) return true; // hit the light itself
+
+    if (shadow_rec.mat->is_transmissive()) {
+      // glass — attenuate by material color and continue
+      Vec3 mat_color = shadow_rec.mat->albedo_at(shadow_rec);
+      shadow_atten = shadow_atten * mat_color;
+      // advance past this surface
+      ray = Ray(shadow_rec.point + ray.direction.normalize() * 0.002, ray.direction);
+      remaining -= shadow_rec.t;
+      continue;
+    }
+
+    // opaque, non-emissive — blocked
+    return false;
+  }
+  return true;
+}
+
 inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable &world, const LightList &lights) {
   Vec3 direct(0,0,0);
   if (lights.empty()) return direct;
@@ -46,11 +75,9 @@ inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable
     if (cos_theta <= 0) continue;
 
     // shadow ray
-    HitRecord shadow_rec;
+    Vec3 shadow_atten;
     Ray shadow_ray(rec.point, to_light_dir);
-    if (world.hit(shadow_ray, 0.001, dist - 0.01, shadow_rec)) {
-      if (!shadow_rec.mat->is_emissive()) continue; 
-    }
+    if (!trace_shadow(shadow_ray, world, dist, shadow_atten)) continue;
 
     // get surface attenuation
     Vec3 attenuation = rec.mat ? rec.mat->albedo_at(rec) : Vec3(1,1,1);
@@ -59,11 +86,10 @@ inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable
     Ray to_light_ray(rec.point, to_light_dir);
     double bsdf_pdf = rec.mat->scattering_pdf(ray_in, rec, to_light_ray);
     double light_pdf = ls.pdf;
-
-    // for delta lights (point/directional), bsdf_pdf = 0 so weight = 1 (only nee can sample)
-    // for area lights, both are nonzero so MIS balance
+    // for delta lights (point/directional), bsdf_pdf = 0 so weight = 1 (only nee can sample), for area lights, both are nonzero so MIS balance
     double mis_weight = (bsdf_pdf > 0) ? power_heuristic(light_pdf, bsdf_pdf) : 1.0;
-    direct = direct + ls.emission * attenuation * cos_theta * mis_weight / light_pdf;
+    
+    direct = direct + ls.emission * attenuation * shadow_atten * cos_theta * mis_weight / light_pdf;
   }
   return direct;
 }
@@ -104,11 +130,10 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
   if (g_volume) {
     double t0, t1;
     if (g_volume->bounds.intersect(r, t0, t1)) {
-      t1 = std::min(t1, t_surface);
+      t0 = fmax(t0, 0.001);
+      t1 = fmin(t1, t_surface);
       if (t1 > t0) {
-        // Beer-Lambert transmittance across the volume segment
         transmittance = exp(-g_volume->sigma_t() * (t1 - t0));
-        // Single-scattering in-scatter from lights
         vol_contribution = integrate_volume(r, t0, t1, *g_volume, world, lights, g_volume_steps);
       }
     }
@@ -191,7 +216,7 @@ inline void render_image(int width, int height, int samples_per_pixel, int max_d
     for (int tx = 0; tx < width; tx += TILE_SIZE) tiles.push_back({tx, ty, std::min(TILE_SIZE, width - tx), std::min(TILE_SIZE, height - ty)});
   }
 
-  // atomic index into tile list — threads grab next tile when done
+  // atomic index into tile list — threads grab next tile when done (work stealing)
   std::atomic<int> next_tile{0};
   int total_tiles = (int)tiles.size();
   
@@ -204,7 +229,6 @@ inline void render_image(int width, int height, int samples_per_pixel, int max_d
       {
         int index = next_tile.fetch_add(1);
         if (index >= total_tiles) break;
-
         for(int s = 0; s < samples_per_pixel; ++s) render_tile(tiles[index], width, height, max_depth, camera, world, lights, framebuffer);
       }
     });  

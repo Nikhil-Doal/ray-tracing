@@ -55,11 +55,13 @@ public:
 
     // rotate hit results back to world space
     rec.point = rotate(rec.point);
-    Vec3 n = rotate(rec.normal).normalize();
-    rec.set_face_normal(rotated_ray, n);
+    Vec3 world_outward = rotate(rec.normal).normalize();
+
+    rec.front_face = ray.direction.dot(world_outward) < 0;
+    rec.normal = rec.front_face ? world_outward : world_outward * -1;
 
     if (rec.has_tbn) {
-      rec.tangent   = rotate(rec.tangent).normalize();
+      rec.tangent = rotate(rec.tangent).normalize();
       rec.bitangent = rotate(rec.bitangent).normalize();
     }
     return true;
@@ -73,14 +75,14 @@ public:
     for (int i = 0; i < 2; ++i)
     for (int j = 0; j < 2; ++j)
     for (int k = 0; k < 2; ++k) {
-      Vec3 corner(
-        i ? box.maximum.x : box.minimum.x,
-        j ? box.maximum.y : box.minimum.y,
-        k ? box.maximum.z : box.minimum.z
-      );
+      Vec3 corner(i ? box.maximum.x : box.minimum.x, j ? box.maximum.y : box.minimum.y, k ? box.maximum.z : box.minimum.z);
       Vec3 rotated = rotate(corner);
-      mn.x = fmin(mn.x, rotated.x); mn.y = fmin(mn.y, rotated.y); mn.z = fmin(mn.z, rotated.z);
-      mx.x = fmax(mx.x, rotated.x); mx.y = fmax(mx.y, rotated.y); mx.z = fmax(mx.z, rotated.z);
+      mn.x = fmin(mn.x, rotated.x); 
+      mn.y = fmin(mn.y, rotated.y); 
+      mn.z = fmin(mn.z, rotated.z);
+      mx.x = fmax(mx.x, rotated.x); 
+      mx.y = fmax(mx.y, rotated.y); 
+      mx.z = fmax(mx.z, rotated.z);
     }
     output_box = AABB(mn, mx);
     return true;
