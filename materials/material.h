@@ -29,4 +29,5 @@ public:
     bump_map = bm;
     bump_strength = strength;
   }
+  virtual ~Material() = default;
 };

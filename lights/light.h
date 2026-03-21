@@ -15,4 +15,5 @@ public:
   virtual LightSample sample(const Vec3 &from) const = 0;
   virtual Vec3 emission(const Vec3 &from, const Vec3 &dir) const = 0;
   virtual double pdf(const Vec3 &from, const Vec3 &dir) const = 0;
+  virtual ~Light() = default;
 };

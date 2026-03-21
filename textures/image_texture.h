@@ -20,5 +20,8 @@ public:
 
   ImageTexture(const std::string &filename, bool linear = false);
   ~ImageTexture();
+
+  ImageTexture(const ImageTexture &) = delete;
+  ImageTexture &operator=(const ImageTexture &) = delete;
   Vec3 value(double u, double v, const Vec3 &point, double ray_t = 0.0) const override;
 };

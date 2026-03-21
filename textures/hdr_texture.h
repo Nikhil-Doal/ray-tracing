@@ -26,6 +26,9 @@ public:
     if (data) stbi_image_free(data);
   }
 
+  HdrTexture(const HdrTexture &) = delete;
+  HdrTexture &operator=(const HdrTexture &) = delete;
+
   Vec3 value(double u, double v, const Vec3 &point, double ray_t = 0.0) const override {
     if (!data) return Vec3(0, 0, 0);
 

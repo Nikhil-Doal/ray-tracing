@@ -53,6 +53,7 @@ int main() {
   nmap_mat->set_normal_map(std::make_shared<ImageTexture>("../../assets/bricks_normal.jpg", true), 5.0);
   nmap_mat->set_bump_map(std::make_shared<ImageTexture>("../../assets/bricks_bump.jpg", true), 10.0);
 
+  world.add(std::make_shared<Sphere>(Vec3(0,0,0), 10, nmap_mat));
   // Left floor
   world.add(std::make_shared<Triangle>(
     Vec3(-15, 0, -15), Vec3(0, 0, 15), Vec3(0, 0, -15), nmap_mat,
