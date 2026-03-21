@@ -4,7 +4,7 @@
 #include "../textures/texture.h"
 #include <memory>
 
-class HitRecord;
+struct HitRecord;
 
 class Material {
 public:

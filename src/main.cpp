@@ -1,118 +1,56 @@
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
+// CPU path entry point
+// Scene is selected by name from the registry (default: "brick_demo")
+// Usage: ./render [scene_name] [output_path]
 
 #include <iostream>
-#include <cmath>
-#include <cstdlib>
+#include <string>
 #include <vector>
-#include <fstream>
+
 #include "../core/vec3.h"
-#include "../core/ray.h"
-#include "../core/hittable.h"
-#include "../objects/sphere.h"
-#include "../objects/plane.h"
-#include "../objects/hittable_list.h"
-#include "../materials/material.h"
-#include "../materials/lambertian.h"
-#include "../materials/metal.h"
-#include "../materials/dielectric.h"
-#include "../materials/glossy.h"
 #include "../core/camera.h"
-#include "../utils/random_scene.h"
 #include "../objects/bvh_node.h"
-#include "../objects/obj_loader.h"
 #include "../renderer/renderer.h"
 #include "../utils/image_writer.h"
-#include "../textures/solid_color.h"
-#include "../textures/image_texture.h"
 #include "../textures/hdr_texture.h"
-#include "../lights/point_light.h"
-#include "../lights/directional_light.h"
-#include "../objects/rotate.h"
-#include "../materials/diffuse_light.h"
-#include "../lights/area_light.h"
-#include <memory>
+#include "../scenes/scene_registry.h"
 
-int main() {
-  int width = 1080;
-  int height = 720;
-  const int samples_per_pixel = 128;
-  const int max_depth = 20;
+int main(int argc, char *argv[]) {
+  std::string scene_name  = (argc > 1) ? argv[1] : "brick_demo";
+  std::string output_path = (argc > 2) ? argv[2] : "../../image.png";
 
-  HittableList world;
-  LightList lights;
+  // List available scenes
+  std::cout << "Available scenes:";
+  for (auto &s : SceneRegistry::list()) std::cout << " " << s;
+  std::cout << "\n";
 
-  // HDR sky
-  g_sky_texture = std::make_shared<HdrTexture>("../../assets/sky.hdr");
-  g_sky_intensity = 1.0f;
+  std::cout << "Building scene: " << scene_name << "\n";
+  SceneDesc desc = SceneRegistry::build(scene_name);
 
-  float tile = 1.0f;
+  if (desc.world.objects.empty()) {
+    std::cerr << "Scene has no objects, aborting.\n";
+    return 1;
+  }
 
-  // ---- LEFT SIDE: Glossy + normal map + bump map ----
-  auto nmap_mat = std::make_shared<Glossy>(std::make_shared<ImageTexture>("../../assets/bricks.jpg"), 0.3, 0.5);
-  nmap_mat->set_normal_map(std::make_shared<ImageTexture>("../../assets/bricks_normal.jpg", true), 5.0);
-  nmap_mat->set_bump_map(std::make_shared<ImageTexture>("../../assets/bricks_bump.jpg", true), 10.0);
+  // HDR sky setup
+  if (!desc.sky_hdr_path.empty()) {
+    g_sky_texture   = std::make_shared<HdrTexture>(desc.sky_hdr_path);
+    g_sky_intensity = desc.sky_intensity;
+  }
 
-  world.add(std::make_shared<Sphere>(Vec3(0,0,0), 10, nmap_mat));
-  // Left floor
-  world.add(std::make_shared<Triangle>(
-    Vec3(-15, 0, -15), Vec3(0, 0, 15), Vec3(0, 0, -15), nmap_mat,
-    Vec3(0,0,0), Vec3(tile,tile,0), Vec3(tile,0,0),
-    Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
-  world.add(std::make_shared<Triangle>(
-    Vec3(-15, 0, -15), Vec3(-15, 0, 15), Vec3(0, 0, 15), nmap_mat,
-    Vec3(0,0,0), Vec3(0,tile,0), Vec3(tile,tile,0),
-    Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
+  // Build BVH
+  auto bvh = desc.build_bvh();
+  Camera camera = desc.build_camera();
 
-  // Left wall
-  world.add(std::make_shared<Triangle>(
-    Vec3(-15, 0, -5), Vec3(0, 0, -5), Vec3(0, 8, -5), nmap_mat,
-    Vec3(0,0,0), Vec3(tile,0,0), Vec3(tile,tile*0.5f,0),
-    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
-  world.add(std::make_shared<Triangle>(
-    Vec3(-15, 0, -5), Vec3(0, 8, -5), Vec3(-15, 8, -5), nmap_mat,
-    Vec3(0,0,0), Vec3(tile,tile*0.5f,0), Vec3(0,tile*0.5f,0),
-    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
+  int W = desc.width;
+  int H = desc.height;
+  int spp = desc.samples_per_pixel;
 
-  // ---- RIGHT SIDE: Glossy flat (no normal/bump map) ----
-  auto flat_mat = std::make_shared<Glossy>(std::make_shared<ImageTexture>("../../assets/bricks.jpg"), 0.3, 0.5);
+  std::cout << "Rendering " << W << "x" << H << " @ " << spp << " spp, depth " << desc.max_depth << "\n";
 
-  // Right floor
-  world.add(std::make_shared<Triangle>(
-    Vec3(0, 0, -15), Vec3(15, 0, 15), Vec3(15, 0, -15), flat_mat,
-    Vec3(0,0,0), Vec3(tile,tile,0), Vec3(tile,0,0),
-    Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
-  world.add(std::make_shared<Triangle>(
-    Vec3(0, 0, -15), Vec3(0, 0, 15), Vec3(15, 0, 15), flat_mat,
-    Vec3(0,0,0), Vec3(0,tile,0), Vec3(tile,tile,0),
-    Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
+  std::vector<Vec3> framebuffer(W * H);
+  render_image(W, H, spp, desc.max_depth, camera, *bvh, desc.lights, framebuffer);
+  save_png(output_path, W, H, framebuffer, spp);
 
-  // Right wall
-  world.add(std::make_shared<Triangle>(
-    Vec3(0, 0, -5), Vec3(15, 0, -5), Vec3(15, 8, -5), flat_mat,
-    Vec3(0,0,0), Vec3(tile,0,0), Vec3(tile,tile*0.5f,0),
-    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
-  world.add(std::make_shared<Triangle>(
-    Vec3(0, 0, -5), Vec3(15, 8, -5), Vec3(0, 8, -5), flat_mat,
-    Vec3(0,0,0), Vec3(tile,tile*0.5f,0), Vec3(0,tile*0.5f,0),
-    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
-
-  // Area light
-  auto light_mat = std::make_shared<DiffuseLight>(Vec3(1.0, 0.95, 0.8) * 8.0);
-  world.add(std::make_shared<Sphere>(Vec3(0, 20, 0), 3.0, light_mat));
-  lights.push_back(std::make_shared<SphereAreaLight>(Vec3(0, 20, 0), 3.0, Vec3(1.0, 0.95, 0.8), 8.0));
-
-  BVHNode world_bvh(world.objects, 0, world.objects.size());
-
-  double aspect_ratio = double(width) / height;
-  Vec3 lookfrom(0, 6, 14);
-  Vec3 lookat(0, 2, -2);
-  Camera camera(lookfrom, lookat, Vec3(0,1,0), 65, aspect_ratio, 0.0, (lookfrom - lookat).norm());
-
-  std::vector<Vec3> framebuffer(width * height);
-  render_image(width, height, samples_per_pixel, max_depth, camera, world_bvh, lights, framebuffer);
-  save_png("../../image.png", width, height, framebuffer, samples_per_pixel);
-
-  std::cout << "Done! Left = Glossy + normal/bump map, Right = Glossy flat.\n";
-  std::cout << "HDR sky enabled.\n";
+  std::cout << "Saved " << output_path << "\n";
+  return 0;
 }

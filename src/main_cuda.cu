@@ -1,39 +1,34 @@
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
+// CUDA path entry point
+// Scene is selected by name from the registry (default: "brick_demo")
+// Usage: ./render_cuda [scene_name] [output_path]
 
 #include <iostream>
+#include <string>
 #include <vector>
 #include <unordered_map>
 
 #include "../core/vec3.h"
-#include "../core/ray.h"
-#include "../core/hittable.h"
 #include "../core/camera.h"
-#include "../objects/sphere.h"
-#include "../objects/plane.h"
 #include "../objects/hittable_list.h"
 #include "../objects/bvh_node.h"
-#include "../objects/obj_loader.h"
-#include "../objects/rotate.h"
-#include "../objects/triangle.h"
-#include "../materials/material.h"
-#include "../materials/lambertian.h"
-#include "../materials/metal.h"
-#include "../materials/dielectric.h"
-#include "../materials/diffuse_light.h"
-#include "../materials/glossy.h"
-#include "../lights/area_light.h"
-#include "../lights/directional_light.h"
-#include "../textures/solid_color.h"
-#include "../textures/image_texture.h"
-#include "../textures/hdr_texture.h"
-#include "../utils/image_writer.h"
 #include "../renderer/renderer.h"
+#include "../utils/image_writer.h"
+#include "../textures/hdr_texture.h"
+#include "../scenes/scene_registry.h"
+
+// CUDA specific
 #include "../renderer/cuda/cuda_renderer.cuh"
 #include "../renderer/cuda/cuda_bvh.cuh"
 
-// Convert CPU lights to GPU
-std::vector<GpuLight> convert_lights(const LightList &lights) {
+// Light conversion
+#include "../lights/directional_light.h"
+#include "../lights/area_light.h"
+
+// stbi_loadf is declared via hdr_texture.h / stb_image.h
+extern "C" float *stbi_loadf(char const *, int *, int *, int *, int);
+extern "C" void stbi_image_free(void *);
+
+static std::vector<GpuLight> convert_lights(const std::vector<std::shared_ptr<Light>> &lights) {
   std::vector<GpuLight> gpu_lights;
   for (auto &l : lights) {
     GpuLight gl{};
@@ -54,7 +49,7 @@ std::vector<GpuLight> convert_lights(const LightList &lights) {
   return gpu_lights;
 }
 
-GpuCamera convert_camera(const Camera &cam) {
+static GpuCamera convert_camera(const Camera &cam) {
   GpuCamera gc{};
   gc.origin = {(float)cam.origin.x, (float)cam.origin.y, (float)cam.origin.z};
   gc.lower_left_corner = {(float)cam.lower_left_corner.x, (float)cam.lower_left_corner.y, (float)cam.lower_left_corner.z};
@@ -64,83 +59,35 @@ GpuCamera convert_camera(const Camera &cam) {
   return gc;
 }
 
-int main() {
-  int width = 1080;
-  int height = 720;
-  int samples_per_pixel = 128;
-  int max_depth = 20;
+int main(int argc, char *argv[]) {
+  std::string scene_name  = (argc > 1) ? argv[1] : "brick_demo";
+  std::string output_path = (argc > 2) ? argv[2] : "../../image_cuda.png";
 
-  HittableList world;
-  LightList lights;
+  std::cout << "Available scenes:";
+  for (auto &s : SceneRegistry::list()) std::cout << " " << s;
+  std::cout << "\n";
 
-  float tile = 1.0f;
+  std::cout << "Building scene: " << scene_name << "\n";
+  SceneDesc desc = SceneRegistry::build(scene_name);
 
-  // ---- LEFT SIDE: Glossy + normal map + bump map ----
-  auto nmap_mat = std::make_shared<Glossy>(std::make_shared<ImageTexture>("../../assets/bricks.jpg"), 0.3, 0.5);
-  nmap_mat->set_normal_map(std::make_shared<ImageTexture>("../../assets/bricks_normal.jpg", true), 5.0);
-  nmap_mat->set_bump_map(std::make_shared<ImageTexture>("../../assets/bricks_bump.jpg", true), 10.0);
+  if (desc.world.objects.empty()) {
+    std::cerr << "Scene has no objects, aborting.\n";
+    return 1;
+  }
 
-  // Left floor
-  world.add(std::make_shared<Triangle>(
-    Vec3(-15, 0, -15), Vec3(0, 0, 15), Vec3(0, 0, -15), nmap_mat,
-    Vec3(0,0,0), Vec3(tile,tile,0), Vec3(tile,0,0),
-    Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
-  world.add(std::make_shared<Triangle>(
-    Vec3(-15, 0, -15), Vec3(-15, 0, 15), Vec3(0, 0, 15), nmap_mat,
-    Vec3(0,0,0), Vec3(0,tile,0), Vec3(tile,tile,0),
-    Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
+  int W   = desc.width;
+  int H   = desc.height;
+  int spp = desc.samples_per_pixel;
 
-  // Left wall
-  world.add(std::make_shared<Triangle>(
-    Vec3(-15, 0, -5), Vec3(0, 0, -5), Vec3(0, 8, -5), nmap_mat,
-    Vec3(0,0,0), Vec3(tile,0,0), Vec3(tile,tile*0.5f,0),
-    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
-  world.add(std::make_shared<Triangle>(
-    Vec3(-15, 0, -5), Vec3(0, 8, -5), Vec3(-15, 8, -5), nmap_mat,
-    Vec3(0,0,0), Vec3(tile,tile*0.5f,0), Vec3(0,tile*0.5f,0),
-    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
-
-  // ---- RIGHT SIDE: Glossy flat ----
-  auto flat_mat = std::make_shared<Glossy>(std::make_shared<ImageTexture>("../../assets/bricks.jpg"), 0.3, 0.5);
-
-  // Right floor
-  world.add(std::make_shared<Triangle>(
-    Vec3(0, 0, -15), Vec3(15, 0, 15), Vec3(15, 0, -15), flat_mat,
-    Vec3(0,0,0), Vec3(tile,tile,0), Vec3(tile,0,0),
-    Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
-  world.add(std::make_shared<Triangle>(
-    Vec3(0, 0, -15), Vec3(0, 0, 15), Vec3(15, 0, 15), flat_mat,
-    Vec3(0,0,0), Vec3(0,tile,0), Vec3(tile,tile,0),
-    Vec3(0,1,0), Vec3(0,1,0), Vec3(0,1,0)));
-
-  // Right wall
-  world.add(std::make_shared<Triangle>(
-    Vec3(0, 0, -5), Vec3(15, 0, -5), Vec3(15, 8, -5), flat_mat,
-    Vec3(0,0,0), Vec3(tile,0,0), Vec3(tile,tile*0.5f,0),
-    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
-  world.add(std::make_shared<Triangle>(
-    Vec3(0, 0, -5), Vec3(15, 8, -5), Vec3(0, 8, -5), flat_mat,
-    Vec3(0,0,0), Vec3(tile,tile*0.5f,0), Vec3(0,tile*0.5f,0),
-    Vec3(0,0,1), Vec3(0,0,1), Vec3(0,0,1)));
-
-  // Area light
-  auto light_mat = std::make_shared<DiffuseLight>(Vec3(1.0, 0.95, 0.8) * 8.0);
-  world.add(std::make_shared<Sphere>(Vec3(0, 20, 0), 3.0, light_mat));
-  lights.push_back(std::make_shared<SphereAreaLight>(Vec3(0, 20, 0), 3.0, Vec3(1.0, 0.95, 0.8), 8.0));
-
-  BVHNode world_bvh(world.objects, 0, world.objects.size());
-
-  // Camera
-  double aspect = double(width) / height;
-  Vec3 lookfrom(0, 6, 14);
-  Vec3 lookat(0, 2, -2);
-  Camera camera(lookfrom, lookat, Vec3(0,1,0), 65, aspect, 0.0, (lookfrom - lookat).norm());
+  // Build BVH (needed for flat-scene conversion)
+  auto bvh = desc.build_bvh();
+  Camera camera = desc.build_camera();
 
   // ---- Convert scene to flat GPU arrays ----
   std::cout << "Converting scene to GPU format...\n";
-  FlatScene flat = build_flat_scene(world_bvh);
+  FlatScene flat = build_flat_scene(*bvh);
 
-  std::vector<GpuLight> gpu_lights = convert_lights(lights);
+  std::vector<GpuLight> gpu_lights = convert_lights(desc.lights);
 
   GpuScene host_scene{};
   host_scene.primitives     = flat.primitives.data();
@@ -161,42 +108,43 @@ int main() {
   host_scene.sky.data      = nullptr;
   host_scene.sky.width     = 0;
   host_scene.sky.height    = 0;
-  host_scene.sky.intensity = 1.0f;
+  host_scene.sky.intensity = desc.sky_intensity;
 
-  int sky_w, sky_h, sky_c;
-  float *sky_data = stbi_loadf("../../assets/sky.hdr", &sky_w, &sky_h, &sky_c, 3);
-  if (sky_data) {
-    host_scene.sky.enabled   = true;
-    host_scene.sky.data      = sky_data;
-    host_scene.sky.width     = sky_w;
-    host_scene.sky.height    = sky_h;
-    host_scene.sky.intensity = 1.0f;
-    std::cout << "HDR sky loaded: " << sky_w << "x" << sky_h << "\n";
-  } else {
-    std::cerr << "Warning: Could not load sky.hdr, using gradient fallback\n";
+  float *sky_data = nullptr;
+  int sky_w = 0, sky_h = 0, sky_c = 0;
+  if (!desc.sky_hdr_path.empty()) {
+    sky_data = stbi_loadf(desc.sky_hdr_path.c_str(), &sky_w, &sky_h, &sky_c, 3);
+    if (sky_data) {
+      host_scene.sky.enabled   = true;
+      host_scene.sky.data      = sky_data;
+      host_scene.sky.width     = sky_w;
+      host_scene.sky.height    = sky_h;
+      std::cout << "HDR sky loaded: " << sky_w << "x" << sky_h << "\n";
+    } else {
+      std::cerr << "Warning: Could not load " << desc.sky_hdr_path << ", using gradient fallback\n";
+    }
   }
 
   CudaRenderParams params{};
-  params.width = width;
-  params.height = height;
-  params.samples_per_pixel = samples_per_pixel;
-  params.max_depth = max_depth;
+  params.width  = W;
+  params.height = H;
+  params.samples_per_pixel = spp;
+  params.max_depth = desc.max_depth;
   params.camera = convert_camera(camera);
 
-  std::cout << "Rendering on GPU...\n";
+  std::cout << "Rendering " << W << "x" << H << " @ " << spp << " spp on GPU...\n";
   std::vector<float> fb;
   cuda_render(params, host_scene, gpu_lights, fb);
 
-  // Free HDR sky host data
   if (sky_data) stbi_image_free(sky_data);
 
-  std::vector<Vec3> framebuffer(width * height);
-  for (int i = 0; i < width * height; ++i)
+  // Convert float buffer to Vec3 framebuffer
+  std::vector<Vec3> framebuffer(W * H);
+  for (int i = 0; i < W * H; ++i)
     framebuffer[i] = Vec3(fb[i*3+0], fb[i*3+1], fb[i*3+2]);
 
-  save_png("../../image_cuda.png", width, height, framebuffer, 1);
-  std::cout << "Saved image_cuda.png\n";
-  std::cout << "Left = Glossy + normal/bump map, Right = Glossy flat. HDR sky.\n";
+  save_png(output_path, W, H, framebuffer, 1);
+  std::cout << "Saved " << output_path << "\n";
 
   return 0;
 }

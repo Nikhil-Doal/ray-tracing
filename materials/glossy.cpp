@@ -1,6 +1,6 @@
 #include "glossy.h"
 
-Glossy::Glossy(std::shared_ptr<Texture> a, double roughness = 0.3, double spec = 0.5) : albedo(a), roughness(roughness), specular_strength(spec) {}
+Glossy::Glossy(std::shared_ptr<Texture> a, double roughness, double spec) : albedo(a), roughness(roughness), specular_strength(spec) {}
 
 bool Glossy::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const {
   // Probabilistically choose diffuse or specular based on specular_strength

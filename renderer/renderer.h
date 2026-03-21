@@ -8,6 +8,7 @@
 #include "../lights/light.h"
 #include "../textures/image_texture.h"
 #include "../textures/texture.h"
+#include "../materials/material.h"
 
 
 inline std::shared_ptr<Texture> g_sky_texture = nullptr;
@@ -19,9 +20,23 @@ struct Tile {
 };
 
 inline double power_heuristic(double pdf_a, double pdf_b) {
-    double a2 = pdf_a * pdf_a;
-    double b2 = pdf_b * pdf_b;
-    return (a2 + b2) < 1e-6 ? 0.0 : a2 / (a2 + b2);
+  double a2 = pdf_a * pdf_a;
+  double b2 = pdf_b * pdf_b;
+  return (a2 + b2) < 1e-6 ? 0.0 : a2 / (a2 + b2);
+}
+
+inline Vec3 sample_sky(const Vec3 &dir) {
+  if (g_sky_texture) {
+    Vec3 unit = dir.normalize();
+    double theta = acos(fmax(-1.0, fmin(1.0, unit.y)));
+    double phi = atan2(unit.z, unit.x) + PI;
+    double u = phi / (2.0 * PI);
+    double v = theta / PI;
+    return g_sky_texture->value(u, v, Vec3(0,0,0)) * g_sky_intensity;
+  }
+  Vec3 unit = dir.normalize();
+  double t = 0.5 * (unit.y + 1.0);
+  return Vec3(1,1,1) * (1.0 - t) + Vec3(0.5, 0.7, 1.0) * t;
 }
 
 inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable &world, const LightList &lights) {
@@ -43,9 +58,9 @@ inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable
 
     // shadow ray
     HitRecord shadow_rec;
-    Ray shadow_ray(rec.point, to_light_dir);
+    Ray shadow_ray(rec.point + rec.normal * 1e-3, to_light_dir);
     if (world.hit(shadow_ray, 0.001, dist - 0.01, shadow_rec)) {
-      if (!shadow_rec.mat->is_emissive()) continue; 
+      if (!shadow_rec.mat->is_emissive()) continue;
     }
 
     // get surface attenuation
@@ -113,18 +128,7 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
     return result;
   }
   // sky
-  if (g_sky_texture) {
-    Vec3 unit = r.direction.normalize();
-    double theta = acos(fmax(-1.0, fmin(1.0, unit.y)));
-    double phi = atan2(unit.z, unit.x) + PI;
-    double u = phi / (2.0 * PI);
-    double v = theta / PI;
-    return g_sky_texture->value(u, v, Vec3(0,0,0)) * g_sky_intensity;
-  }
-  Vec3 unit = r.direction.normalize();
-  double t = 0.5*(unit.y + 1.0);
-  Vec3 sky = Vec3(1,1,1)*(1.0-t) + Vec3(0.5,0.7,1.0)*t;
-  return sky;
+  return sample_sky(r.direction);
 }
 
 inline void render_rows(int start_row, int end_row, int width, int height, int samples_per_pixel, int max_depth, const Camera &camera, const Hittable &world, const LightList &lights, std::vector<Vec3> &framebuffer) {

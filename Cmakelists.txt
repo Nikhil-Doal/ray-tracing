@@ -9,6 +9,14 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# ---- stb implementation files (compiled exactly once) ----
+# These dedicated TUs define STB_IMAGE_IMPLEMENTATION / STB_IMAGE_WRITE_IMPLEMENTATION
+# so that no other source file needs to. Eliminates ODR violations.
+set(STB_SOURCES
+    external/stb_image_impl.cpp
+    external/stb_image_write_impl.cpp
+)
+
 # ---- shared source files ----
 set(SHARED_SOURCES
     core/vec3.cpp
@@ -23,13 +31,21 @@ set(SHARED_SOURCES
     materials/lambertian.cpp
     materials/metal.cpp
     materials/dielectric.cpp
+    materials/glossy.cpp
     textures/image_texture.cpp
+    lights/point_light.cpp
+    lights/directional_light.cpp
+    lights/area_light.cpp
+    scenes/scene_registry.cpp
+    scenes/scene_brick_demo.cpp
+    scenes/scene_random_spheres.cpp
 )
 
 # ---- CPU target ----
 add_executable(render
     src/main.cpp
     ${SHARED_SOURCES}
+    ${STB_SOURCES}
 )
 target_include_directories(render PRIVATE .)
 target_compile_options(render PRIVATE
@@ -38,6 +54,19 @@ target_compile_options(render PRIVATE
 )
 find_package(Threads REQUIRED)
 target_link_libraries(render PRIVATE Threads::Threads)
+
+# ---- test target ----
+# add_executable(test_render
+#     src/test.cpp
+#     ${SHARED_SOURCES}
+#     ${STB_SOURCES}
+# )
+# target_include_directories(test_render PRIVATE .)
+# target_compile_options(test_render PRIVATE
+#     $<$<CXX_COMPILER_ID:MSVC>:/O2 /W3>
+#     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O3 -march=native>
+# )
+# target_link_libraries(test_render PRIVATE Threads::Threads)
 
 # ---- CUDA target ----
 include(CheckLanguage)
@@ -55,6 +84,7 @@ if(CMAKE_CUDA_COMPILER)
         src/main_cuda.cu
         renderer/cuda/cuda_renderer.cu
         ${SHARED_SOURCES}
+        ${STB_SOURCES}
     )
 
     target_include_directories(render_cuda PRIVATE .)
