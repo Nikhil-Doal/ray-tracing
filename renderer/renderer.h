@@ -211,7 +211,6 @@ inline void render_image(int width, int height, int samples_per_pixel, int max_d
   }
 
   // atomic index into tile list — threads grab next tile when done (work stealing)
-  std::atomic<int> next_tile{0};
   int total_tiles = (int)tiles.size();
 
   int thread_count = std::thread::hardware_concurrency();
