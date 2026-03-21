@@ -3,7 +3,10 @@
 
 Dielectric::Dielectric(double ir, std::shared_ptr<Texture> tint) : ir(ir), tint(tint) {}
 
-bool Dielectric::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const{
+bool Dielectric::scatter(const Ray &ray_in, const HitRecord &rec_in, Vec3 &attenuation, Ray &scattered) const{
+  HitRecord rec = rec_in;
+  apply_normal_maps(rec);
+
   attenuation = tint ? tint->value(rec.u, rec.v, rec.point, rec.t) : Vec3(1.0, 1.0, 1.0);
   double refract_ratio = rec.front_face ? (1.0/ir) : ir;
   Vec3 unit_dir = ray_in.direction.normalize();

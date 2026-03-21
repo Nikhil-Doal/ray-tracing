@@ -3,7 +3,10 @@
 
 Metal::Metal(std::shared_ptr<Texture> a, double f) : albedo(a), fuzz(f < 1 ? f : 1) {}
 
-bool Metal::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation, Ray &scattered) const {
+bool Metal::scatter(const Ray &ray_in, const HitRecord &rec_in, Vec3 &attenuation, Ray &scattered) const {
+  HitRecord rec = rec_in;
+  apply_normal_maps(rec);
+  
   Vec3 reflected = reflect(ray_in.direction.normalize(), rec.normal);
 
   scattered = Ray(rec.point, reflected + random_in_unit_sphere() * fuzz);

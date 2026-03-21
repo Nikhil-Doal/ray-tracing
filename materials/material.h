@@ -29,4 +29,42 @@ public:
     bump_map = bm;
     bump_strength = strength;
   }
+
+  void apply_normal_maps(HitRecord &rec) const {
+    if (!rec.has_tbn) return;
+ 
+    Vec3 shading_normal = rec.normal;
+    // geometric normal: before any perturbation, front-face corrected
+    Vec3 geometric_normal = rec.front_face ? shading_normal : shading_normal * -1;
+ 
+    // --- Bump map (height-field finite differences) ---
+    if (bump_map) {
+      double du = 1.0 / 1024.0, dv = 1.0 / 1024.0;
+      auto sample_h = [&](double u, double v) {
+        Vec3 c = bump_map->value(u, v, rec.point, rec.t);
+        return (c.x + c.y + c.z) / 3.0;
+      };
+      double h_c = sample_h(rec.u, rec.v);
+      double dh_du = (sample_h(rec.u + du, rec.v) - h_c) / du * bump_strength;
+      double dh_dv = (sample_h(rec.u, rec.v + dv) - h_c) / dv * bump_strength;
+ 
+      Vec3 mapped = (shading_normal - rec.tangent * dh_du - rec.bitangent * dh_dv).normalize();
+      if (mapped.dot(geometric_normal) < 0.01) mapped = (mapped + geometric_normal * 0.1).normalize();
+      shading_normal = mapped;
+    }
+ 
+    // --- Normal map (tangent-space RGB) ---
+    if (normal_map) {
+      Vec3 s = normal_map->value(rec.u, rec.v, rec.point, rec.t);
+      double tn_x = (s.x * 2.0 - 1.0) * normal_map_strength;
+      double tn_y = (s.y * 2.0 - 1.0) * normal_map_strength;
+      double tn_z = (s.z * 2.0 - 1.0);
+      Vec3 tn = Vec3(tn_x, tn_y, tn_z).normalize();
+ 
+      Vec3 mapped = (rec.tangent * tn.x + rec.bitangent * tn.y + shading_normal * tn.z).normalize();
+      if (mapped.dot(geometric_normal) < 0.01) mapped = (mapped + geometric_normal * 0.1).normalize();
+      shading_normal = mapped;
+    }
+    rec.normal = rec.front_face ? shading_normal : shading_normal * -1;
+  }
 };
