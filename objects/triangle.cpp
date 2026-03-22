@@ -152,10 +152,6 @@ bool Triangle::hit(const Ray &ray, double t_min, double t_max, HitRecord &rec) c
   rec.normal = rec.front_face ? shading_normal : shading_normal * -1;
   rec.mat = mat;
 
-  // Offset along GEOMETRIC normal to prevent self-intersection
-  Vec3 geo_offset = rec.front_face ? geometric_normal : geometric_normal * -1;
-  rec.point = rec.point + geo_offset * 1e-4;
-
   return true;
 }
 

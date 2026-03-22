@@ -32,7 +32,6 @@ public:
     if (!data) return Vec3(0, 0, 0);
     u = u - floor(u);
     v = v - floor(v);
-    v = 1.0 - v;
     return sample_bilinear(u, v);
   }
 
@@ -43,7 +42,6 @@ public:
     double phi = atan2(unit.z, unit.x) + PI;
     double u = phi / (2.0 * PI);
     double v = theta / PI;
-    v = 1.0 - v;  // single flip for stb top-left origin
     return sample_bilinear(u, v);
   }
 

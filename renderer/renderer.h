@@ -69,7 +69,7 @@ inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable
 
     // shadow ray
     HitRecord shadow_rec;
-    Ray shadow_ray(rec.point + rec.normal * 1e-3, to_light_dir);
+    Ray shadow_ray(rec.point + rec.normal * 1e-4, to_light_dir);
     if (world.hit(shadow_ray, 0.001, dist - 0.01, shadow_rec)) {
       if (!shadow_rec.mat->is_emissive()) continue;
     }
@@ -133,16 +133,11 @@ inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &ligh
       result = result + ray_color(scattered, world, lights, depth - 1, -1.0) * attenuation;
     } 
     else {
-      // diffuse — explicit cos/pdf for correctness with any BSDF
-      double cos_theta = fmax(0.0, rec.normal.dot(scattered.direction.normalize()));
+    // Diffuse bounce — cosine-weighted sampling already accounts for BRDF/PDF
 
-      // Guard against pdf explosion: if pdf is tiny relative to cos_theta, clamp the ratio
-      double weight = cos_theta / bsdf_pdf;
-      weight = fmin(weight, MAX_THROUGHPUT);
-
-      Vec3 indirect = ray_color(scattered, world, lights, depth - 1, bsdf_pdf);
-      result = result + indirect * attenuation * weight;
-    }
+    Vec3 indirect = ray_color(scattered, world, lights, depth - 1, bsdf_pdf);
+    result = result + indirect * attenuation;
+  }
     return result;
   }
   // sky

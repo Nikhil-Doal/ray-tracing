@@ -38,7 +38,9 @@ double Vec3::norm() const {
   return std::sqrt(x*x + y*y + z*z);
 }
 Vec3 Vec3::normalize() const {
-  return *this/norm();
+  double n = norm();
+  if (n < 1e-12) return Vec3(0, 0, 0);
+  return *this / n;
 }
 
 Vec3 Vec3::random() {
