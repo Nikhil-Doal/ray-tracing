@@ -44,9 +44,9 @@ inline Vec3 sample_sky(const Vec3 &dir) {
 
 inline Vec3 clamp_vec(const Vec3 &v, double max_component) {
   return Vec3(
-    fmin(v.x, max_component),
-    fmin(v.y, max_component),
-    fmin(v.z, max_component)
+    std::isfinite(v.x) ? fmin(fmax(v.x, 0.0), max_component) : 0.0,
+    std::isfinite(v.y) ? fmin(fmax(v.y, 0.0), max_component) : 0.0,
+    std::isfinite(v.z) ? fmin(fmax(v.z, 0.0), max_component) : 0.0
   );
 }
 
@@ -86,7 +86,7 @@ inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable
     // for area lights, both are nonzero so MIS balance
     double mis_weight = (bsdf_pdf > 0) ? power_heuristic(light_pdf, bsdf_pdf) : 1.0;
 
-    Vec3 contribution = ls.emission * attenuation * cos_theta * mis_weight / light_pdf;
+    Vec3 contribution = ls.emission * attenuation * (1.0 / PI) * cos_theta * mis_weight / light_pdf;
     direct = direct + clamp_vec(contribution, MAX_THROUGHPUT);
   }
   return direct;
@@ -102,6 +102,7 @@ inline double total_light_pdf(const Vec3 &from, const Vec3 &dir, const LightList
 
 inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &lights, int depth, double prev_bsdf_pdf = -1.0) {
   if (depth <= 0) return Vec3(0,0,0);
+
   HitRecord rec;
 
   if (world.hit(r, 0.001, 1000, rec)) {
@@ -152,7 +153,9 @@ inline void render_rows(int start_row, int end_row, int width, int height, int s
         double u = (i + random_double()) / (width - 1);
         double v = (j + random_double()) / (height - 1);
         Ray ray = camera.get_ray(u, v);
-        pixel_color = pixel_color + ray_color(ray, world, lights, max_depth, -1.0);
+        Vec3 sample = ray_color(ray, world, lights, max_depth, -1.0);
+        sample = clamp_vec(sample, MAX_THROUGHPUT);
+        pixel_color = pixel_color + sample;
       }
       // storing the frames
       framebuffer[j*width + i] = framebuffer[j*width + i] + pixel_color;
@@ -167,7 +170,9 @@ inline void render_tile(const Tile &tile, int img_width, int img_height, int max
       double u = (i + random_double()) / (img_width - 1);
       double v = (j + random_double()) / (img_height - 1);
       Ray ray = camera.get_ray(u, v);
-      framebuffer[j*img_width + i] = framebuffer[j*img_width + i] + ray_color(ray, world, lights, max_depth, -1.0);
+      Vec3 sample = ray_color(ray, world, lights, max_depth, -1.0);
+      sample = clamp_vec(sample, MAX_THROUGHPUT);
+      framebuffer[j*img_width + i] = framebuffer[j*img_width + i] + sample;
     }
   }
 }

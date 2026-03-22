@@ -36,9 +36,12 @@ __device__ inline GpuVec3 rand_cosine_direction(curandState *s) {
 }
 
 __device__ inline GpuVec3 clamp_vec(const GpuVec3 &v, float max_val) {
-  return GpuVec3(fminf(v.x, max_val), fminf(v.y, max_val), fminf(v.z, max_val));
+  return GpuVec3(
+    isfinite(v.x) ? fminf(fmaxf(v.x, 0.0f), max_val) : 0.0f,
+    isfinite(v.y) ? fminf(fmaxf(v.y, 0.0f), max_val) : 0.0f,
+    isfinite(v.z) ? fminf(fmaxf(v.z, 0.0f), max_val) : 0.0f
+  );
 }
-
 // bilinear texture sampling
 __device__ GpuVec3 sample_texture(const GpuScene &scene, int tex_id, float u, float v, const GpuVec3 &solid_color) {
   if (tex_id < 0 || tex_id >= scene.num_textures || !scene.tex_data) return solid_color;
@@ -542,17 +545,41 @@ __device__ GpuVec3 direct_light(const GpuScene &scene, const GpuHitRecord &rec, 
       light_pdf = 1.0f;
     } 
     else if (light.type == GpuLightType::SPHERE_AREA) {
-      // sample random point on sphere surface
-      GpuVec3 rand_dir = rand_in_unit_sphere(rng).normalize();
-      GpuVec3 pt = light.position + rand_dir * light.radius;
-      GpuVec3 diff = pt - rec.point;
-      dist = diff.norm();
-      to_light_dir = diff * (1.0f / dist);
-      float cos_l = fabsf(rand_dir.dot(GpuVec3{-to_light_dir.x, -to_light_dir.y, -to_light_dir.z}));
-      float area = 4.0f * GPU_PI * light.radius * light.radius;
-      light_pdf = (cos_l < 1e-6f) ? 0.0f : (dist*dist) / (cos_l * area);
+      // cone sampling — matches total_light_pdf
+      GpuVec3 oc = light.position - rec.point;
+      float dist_sq = oc.dot(oc);
+      float dist_c = sqrtf(dist_sq);
+      float sin2_max = light.radius * light.radius / dist_sq;
+      float cos_max = sqrtf(fmaxf(0.0f, 1.0f - sin2_max));
+      float solid_angle = 2.0f * GPU_PI * (1.0f - cos_max);
+      if (solid_angle <= 0.0f) continue;
+
+      float r1 = rand_f(rng);
+      float r2 = rand_f(rng);
+      float cos_t = 1.0f + r1 * (cos_max - 1.0f);
+      float sin_t = sqrtf(fmaxf(0.0f, 1.0f - cos_t * cos_t));
+      float phi = 2.0f * GPU_PI * r2;
+
+      GpuVec3 w = oc * (1.0f / dist_c);
+      GpuVec3 a_vec = (fabsf(w.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
+      GpuVec3 v = w.cross(a_vec).normalize();
+      GpuVec3 u = w.cross(v);
+      to_light_dir = (u * (sin_t * cosf(phi)) + v * (sin_t * sinf(phi)) + w * cos_t).normalize();
+
+      // intersect to get shadow distance
+      GpuVec3 oc2 = rec.point - light.position;
+      float ia = to_light_dir.dot(to_light_dir);
+      float ib = oc2.dot(to_light_dir);
+      float ic = oc2.dot(oc2) - light.radius * light.radius;
+      float disc = ib*ib - ia*ic;
+      if (disc < 0) continue;
+      dist = (-ib - sqrtf(disc)) / ia;
+      if (dist < 0.001f) continue;
+
+      light_pdf = 1.0f / solid_angle;
       emission = light.color * light.intensity;
-    } 
+    }
+
     else continue;
 
     if (light_pdf <= 0.0f) continue;
@@ -574,7 +601,7 @@ __device__ GpuVec3 direct_light(const GpuScene &scene, const GpuHitRecord &rec, 
     float bsdf_pdf = scattering_pdf(mat, rec, to_light_ray);
     float mis = (bsdf_pdf > 0) ? power_heuristic(light_pdf, bsdf_pdf) : 1.0f;
 
-    GpuVec3 contribution = emission * attenuation * (cos_theta * mis / light_pdf);
+    GpuVec3 contribution = emission * attenuation * (cos_theta * mis / (light_pdf * GPU_PI));
     result = result + clamp_vec(contribution, GPU_MAX_THROUGHPUT);
   }
   return result;
@@ -641,15 +668,9 @@ __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, c
     if (!mat_scatter(scene, mat, ray, rec, attenuation, scattered, rng)) break;
 
     float bsdf_pdf = scattering_pdf(mat, rec, scattered);
-    if (bsdf_pdf > 0) {
-      float cos_theta = fmaxf(0.0f, rec.normal.dot(scattered.direction.normalize()));
-      float weight = cos_theta / bsdf_pdf;
-      weight = fminf(weight, GPU_MAX_THROUGHPUT);
-      throughput = throughput * attenuation * weight;
-    } else throughput = throughput * attenuation; // specular
+    throughput = throughput * attenuation;
     prev_bsdf_pdf = (bsdf_pdf > 0) ? bsdf_pdf : -1.0f;
     ray = scattered;
-
     // Russian roulette after depth 3 — unbiased early termination
     if (depth > 3) {
       float p = fmaxf(throughput.x, fmaxf(throughput.y, throughput.z));
