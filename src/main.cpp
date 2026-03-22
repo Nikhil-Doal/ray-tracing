@@ -1,5 +1,4 @@
 // CPU path entry point
-// Scene is selected by name from the registry (default: "brick_demo")
 // Usage: ./render [scene_name] [output_path]
 
 #include <iostream>
@@ -18,7 +17,6 @@ int main(int argc, char *argv[]) {
   std::string scene_name  = (argc > 1) ? argv[1] : "brick_demo";
   std::string output_path = (argc > 2) ? argv[2] : "../../image.png";
 
-  // List available scenes
   std::cout << "Available scenes:";
   for (auto &s : SceneRegistry::list()) std::cout << " " << s;
   std::cout << "\n";
@@ -33,11 +31,17 @@ int main(int argc, char *argv[]) {
 
   // HDR sky setup
   if (!desc.sky_hdr_path.empty()) {
-    g_sky_texture   = std::make_shared<HdrTexture>(desc.sky_hdr_path);
-    g_sky_intensity = desc.sky_intensity;
+    auto hdr = std::make_shared<HdrTexture>(desc.sky_hdr_path);
+    if (hdr->data) {
+      g_sky_texture = hdr;
+      g_sky_intensity = desc.sky_intensity;
+      std::cout << "Sky HDR active: " << hdr->width << "x" << hdr->height
+                << ", intensity=" << g_sky_intensity << "\n";
+    } else {
+      std::cerr << "Sky HDR failed to load, using gradient fallback\n";
+    }
   }
 
-  // Build BVH
   auto bvh = desc.build_bvh();
   Camera camera = desc.build_camera();
 
