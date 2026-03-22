@@ -15,6 +15,7 @@
 } while (0)
 
 #define GPU_PI 3.14159265f
+#define GPU_MAX_THROUGHPUT 15.0f
 
 // random number generator helpers
 // inline to reduce overhead 
@@ -32,6 +33,10 @@ __device__ inline GpuVec3 rand_cosine_direction(curandState *s) {
   float y = sinf(phi) * sqrtf(r2);
   float z = sqrtf(1.0f - r2);
   return {x, y, z};
+}
+
+__device__ inline GpuVec3 clamp_vec(const GpuVec3 &v, float max_val) {
+  return GpuVec3(fminf(v.x, max_val), fminf(v.y, max_val), fminf(v.z, max_val));
 }
 
 // bilinear texture sampling
@@ -161,7 +166,7 @@ __device__ bool aabb_hit(const GpuBVHNode &node, const GpuRay &ray, float t_min,
   return true;
 }
 
-// hit sphere
+// hit sphere — with TBN for normal mapping
 __device__ bool sphere_hit(const GpuSphere &s, const GpuRay &ray, float t_min, float t_max, GpuHitRecord &rec) {
   GpuVec3 oc = ray.origin - s.center;
   float a = ray.direction.dot(ray.direction);
@@ -182,13 +187,37 @@ __device__ bool sphere_hit(const GpuSphere &s, const GpuRay &ray, float t_min, f
   rec.front_face = ray.direction.dot(outward) < 0;
   rec.normal = rec.front_face ? outward : GpuVec3{-outward.x, -outward.y, -outward.z};
   rec.geometric_normal = outward;
-  rec.has_tbn = false;
 
   // spherical uv coords
-  float theta = acosf(-outward.y);
+  float theta = acosf(fmaxf(-1.0f, fminf(1.0f, -outward.y)));
   float phi = atan2f(-outward.z, outward.x) + GPU_PI;
   rec.u = phi / (2.0f * GPU_PI);
   rec.v = theta / GPU_PI;
+
+  // ---- Compute TBN from spherical parameterization ----
+  float sin_phi   = sinf(rec.u * 2.0f * GPU_PI - GPU_PI);
+  float cos_phi   = cosf(rec.u * 2.0f * GPU_PI - GPU_PI);
+  float sin_theta = sinf(rec.v * GPU_PI);
+
+  GpuVec3 tangent(-sin_phi * sin_theta, 0.0f, cos_phi * sin_theta);
+  float tangent_len = tangent.norm();
+
+  if (tangent_len > 1e-6f) {
+    tangent = tangent * (1.0f / tangent_len);
+  } else {
+    // Pole degenerate — pick arbitrary perpendicular
+    GpuVec3 arb = (fabsf(outward.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
+    tangent = outward.cross(arb).normalize();
+  }
+
+  GpuVec3 shading_n = rec.front_face ? outward : outward * -1.0f;
+  GpuVec3 bitangent = shading_n.cross(tangent).normalize();
+
+  rec.tangent = tangent;
+  rec.bitangent = bitangent;
+  rec.shading_normal = shading_n;
+  rec.has_tbn = true;
+
   return true;
 }
 
@@ -470,7 +499,7 @@ __device__ bool mat_scatter(const GpuScene &scene, const GpuMaterial &mat, const
 }
 
 // MIS helpers
-// scattering pdf for lambertian
+// scattering pdf for lambertian and glossy
 __device__ float scattering_pdf(const GpuMaterial &mat, const GpuHitRecord &rec, const GpuRay &scattered) {
   if (mat.type == GpuMatType::LAMBERTIAN) {
     float cos_t = rec.normal.dot(scattered.direction.normalize());
@@ -479,7 +508,9 @@ __device__ float scattering_pdf(const GpuMaterial &mat, const GpuHitRecord &rec,
   if (mat.type == GpuMatType::GLOSSY) {
     float cos_t = rec.normal.dot(scattered.direction.normalize());
     float diffuse_pdf = cos_t < 0 ? 0.0f : cos_t / GPU_PI;
-    return diffuse_pdf * (1.0f - mat.specular_strength) + 0.001f;
+    // No artificial floor — return 0 for pure specular paths
+    if (diffuse_pdf <= 0.0f) return 0.0f;
+    return diffuse_pdf * (1.0f - mat.specular_strength);
   }
   return 0.0f;
 }
@@ -542,7 +573,9 @@ __device__ GpuVec3 direct_light(const GpuScene &scene, const GpuHitRecord &rec, 
     GpuRay to_light_ray{rec.point, to_light_dir};
     float bsdf_pdf = scattering_pdf(mat, rec, to_light_ray);
     float mis = (bsdf_pdf > 0) ? power_heuristic(light_pdf, bsdf_pdf) : 1.0f;
-    result = result + emission * attenuation * (cos_theta * mis / light_pdf);
+
+    GpuVec3 contribution = emission * attenuation * (cos_theta * mis / light_pdf);
+    result = result + clamp_vec(contribution, GPU_MAX_THROUGHPUT);
   }
   return result;
 }
@@ -610,17 +643,23 @@ __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, c
     float bsdf_pdf = scattering_pdf(mat, rec, scattered);
     if (bsdf_pdf > 0) {
       float cos_theta = fmaxf(0.0f, rec.normal.dot(scattered.direction.normalize()));
-      throughput = throughput * attenuation * (cos_theta / bsdf_pdf);
+      float weight = cos_theta / bsdf_pdf;
+      weight = fminf(weight, GPU_MAX_THROUGHPUT);
+      throughput = throughput * attenuation * weight;
     } else throughput = throughput * attenuation; // specular
     prev_bsdf_pdf = (bsdf_pdf > 0) ? bsdf_pdf : -1.0f;
     ray = scattered;
 
-    // Russian roulette :) after depth 3 — unbiased early termination
+    // Russian roulette after depth 3 — unbiased early termination
     if (depth > 3) {
       float p = fmaxf(throughput.x, fmaxf(throughput.y, throughput.z));
+      p = fminf(p, 0.95f);  // cap survival probability to avoid infinite paths
       if (rand_f(rng) > p) break;
       throughput = throughput * (1.0f / p);
     }
+
+    // Hard clamp throughput to prevent runaway energy
+    throughput = clamp_vec(throughput, GPU_MAX_THROUGHPUT);
   }
   return result;
 }
@@ -657,6 +696,9 @@ __global__ void render_kernel(float *fb, int width, int height, int samples, int
     float v = (y + curand_uniform(&rng)) / (float)(height - 1);
     GpuRay ray = get_camera_ray(camera, u, v, &rng);
     GpuVec3 color = ray_color(ray, scene, max_depth, &rng);
+
+    // Clamp individual sample contribution to prevent single outlier from dominating
+    color = clamp_vec(color, GPU_MAX_THROUGHPUT);
 
     // welford algorithm
     n++;

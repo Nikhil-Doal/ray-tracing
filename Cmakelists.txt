@@ -39,6 +39,7 @@ set(SHARED_SOURCES
     scenes/scene_registry.cpp
     scenes/scene_brick_demo.cpp
     scenes/scene_random_spheres.cpp
+    scenes/scene_normal_map_test.cpp
 )
 
 # ---- CPU target ----

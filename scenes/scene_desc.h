@@ -29,8 +29,8 @@ struct SceneDesc {
   // Image dimensions (scene can suggest, main can override)
   int width  = 1080;
   int height = 720;
-  int samples_per_pixel = 128;
-  int max_depth = 20;
+  int samples_per_pixel = 200;
+  int max_depth = 60;
 
   // Sky / environment
   std::string sky_hdr_path;    // empty => gradient fallback

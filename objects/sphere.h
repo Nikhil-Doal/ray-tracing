@@ -1,5 +1,6 @@
 #pragma once
 #include "../core/hittable.h"
+#include "../materials/material.h"
 #include <cmath>
 #include <memory>
 

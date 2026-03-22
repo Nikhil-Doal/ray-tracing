@@ -5,20 +5,22 @@
 #include <atomic>
 #include "../core/camera.h"
 #include "../core/hittable.h"
-#include "../materials/material.h"
 #include "../lights/light.h"
 #include "../textures/image_texture.h"
 #include "../textures/texture.h"
-#include "../textures/hdr_texture.h"
+#include "../materials/material.h"
 
 
-inline std::shared_ptr<HdrTexture> g_sky_texture = nullptr;
+inline std::shared_ptr<Texture> g_sky_texture = nullptr;
 inline float g_sky_intensity = 1.0f;
 
 using LightList = std::vector<std::shared_ptr<Light>>;
 struct Tile {
   int x, y, w, h;
 };
+
+// Max throughput magnitude before clamping — kills fireflies from bad pdf ratios
+constexpr double MAX_THROUGHPUT = 15.0;
 
 inline double power_heuristic(double pdf_a, double pdf_b) {
   double a2 = pdf_a * pdf_a;
@@ -27,13 +29,25 @@ inline double power_heuristic(double pdf_a, double pdf_b) {
 }
 
 inline Vec3 sample_sky(const Vec3 &dir) {
-  if (g_sky_texture && g_sky_texture->data) {
-    return g_sky_texture->sky_sample(dir) * g_sky_intensity;
+  if (g_sky_texture) {
+    Vec3 unit = dir.normalize();
+    double theta = acos(fmax(-1.0, fmin(1.0, unit.y)));
+    double phi = atan2(unit.z, unit.x) + PI;
+    double u = phi / (2.0 * PI);
+    double v = theta / PI;
+    return g_sky_texture->value(u, v, Vec3(0,0,0)) * g_sky_intensity;
   }
-  // Gradient fallback (matches CUDA)
   Vec3 unit = dir.normalize();
   double t = 0.5 * (unit.y + 1.0);
   return Vec3(1,1,1) * (1.0 - t) + Vec3(0.5, 0.7, 1.0) * t;
+}
+
+inline Vec3 clamp_vec(const Vec3 &v, double max_component) {
+  return Vec3(
+    fmin(v.x, max_component),
+    fmin(v.y, max_component),
+    fmin(v.z, max_component)
+  );
 }
 
 inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable &world, const LightList &lights) {
@@ -71,7 +85,9 @@ inline Vec3 direct_light(const Ray &ray_in, const HitRecord &rec, const Hittable
     // for delta lights (point/directional), bsdf_pdf = 0 so weight = 1 (only nee can sample)
     // for area lights, both are nonzero so MIS balance
     double mis_weight = (bsdf_pdf > 0) ? power_heuristic(light_pdf, bsdf_pdf) : 1.0;
-    direct = direct + ls.emission * attenuation * cos_theta * mis_weight / light_pdf;
+
+    Vec3 contribution = ls.emission * attenuation * cos_theta * mis_weight / light_pdf;
+    direct = direct + clamp_vec(contribution, MAX_THROUGHPUT);
   }
   return direct;
 }
@@ -84,64 +100,53 @@ inline double total_light_pdf(const Vec3 &from, const Vec3 &dir, const LightList
   return total;
 }
 
-inline Vec3 ray_color(const Ray &initial_ray, const Hittable &world, const LightList &lights, int max_depth, double /*unused*/ = -1.0) {
-  Vec3 throughput(1, 1, 1);
-  Vec3 result(0, 0, 0);
-  double prev_bsdf_pdf = -1.0;  // -1 = camera ray / specular
-  Ray ray = initial_ray;
-  for (int depth = 0; depth < max_depth; ++depth) {
-    HitRecord rec;
-    if (!world.hit(ray, 0.001, 1e30, rec)) {
-      // Miss — sky
-      result = result + throughput * sample_sky(ray.direction);
-      break;
-    }
- 
-    // Emissive hit — MIS weighted
+inline Vec3 ray_color(const Ray &r, const Hittable &world, const LightList &lights, int depth, double prev_bsdf_pdf = -1.0) {
+  if (depth <= 0) return Vec3(0,0,0);
+  HitRecord rec;
+
+  if (world.hit(r, 0.001, 1000, rec)) {
+    Ray scattered;
+    Vec3 attenuation;
+
+    // emissive hit
     if (rec.mat->is_emissive()) {
       Vec3 Le = rec.front_face ? rec.mat->emit(rec.u, rec.v, rec.point) : Vec3(0,0,0);
-      if (prev_bsdf_pdf < 0) {
-        result = result + throughput * Le;
-      } else {
-        double lp = total_light_pdf(ray.origin, ray.direction, lights);
-        double mis = (lp > 0) ? power_heuristic(prev_bsdf_pdf, lp) : 1.0;
-        result = result + throughput * Le * mis;
-      }
-      break;
+
+      if (prev_bsdf_pdf < 0) return Le;
+
+      // diffuse bounce - check against NEE to prevent double counting
+      double light_pdf = total_light_pdf(r.origin, r.direction, lights);
+      double mis_weight = (light_pdf > 0) ? power_heuristic(prev_bsdf_pdf, light_pdf) : 1.0;
+      return Le * mis_weight;
     }
- 
-    // NEE direct lighting at every diffuse bounce
-    if (!rec.mat->is_transmissive()) {
-      result = result + throughput * direct_light(ray, rec, world, lights);
-    }
- 
-    // Scatter for next bounce
-    Vec3 attenuation;
-    Ray scattered;
-    if (!rec.mat->scatter(ray, rec, attenuation, scattered)) break;
- 
-    double bsdf_pdf = rec.mat->scattering_pdf(ray, rec, scattered);
-    if (bsdf_pdf > 0) {
-      // Diffuse — explicit cos/pdf weighting (matches CUDA)
+
+    // for non-emissive hitlist
+    if (!rec.mat->scatter(r, rec, attenuation, scattered)) return Vec3(0,0,0);
+    Vec3 result(0,0,0);
+
+    // do NEE at every diffuse bounce
+    if (!rec.mat->is_transmissive()) result = result + direct_light(r, rec, world, lights);
+    double bsdf_pdf = rec.mat->scattering_pdf(r, rec, scattered);
+
+    if (bsdf_pdf <= 0) {
+      // specular — no pdf weighting needed
+      result = result + ray_color(scattered, world, lights, depth - 1, -1.0) * attenuation;
+    } 
+    else {
+      // diffuse — explicit cos/pdf for correctness with any BSDF
       double cos_theta = fmax(0.0, rec.normal.dot(scattered.direction.normalize()));
-      throughput = throughput * attenuation * (cos_theta / bsdf_pdf);
-    } else {
-      // Specular (metal, dielectric)
-      throughput = throughput * attenuation;
+
+      // Guard against pdf explosion: if pdf is tiny relative to cos_theta, clamp the ratio
+      double weight = cos_theta / bsdf_pdf;
+      weight = fmin(weight, MAX_THROUGHPUT);
+
+      Vec3 indirect = ray_color(scattered, world, lights, depth - 1, bsdf_pdf);
+      result = result + indirect * attenuation * weight;
     }
-    prev_bsdf_pdf = (bsdf_pdf > 0) ? bsdf_pdf : -1.0;
-    ray = scattered;
- 
-    // Russian roulette after depth 3 — matches CUDA exactly
-    // Unbiased early termination: probability of continuing = max component of throughput
-    if (depth > 3) {
-      double p = fmax(throughput.x, fmax(throughput.y, throughput.z));
-      if (p < 1e-4) break;  // avoid div by zero for near-black throughput
-      if (random_double() > p) break;
-      throughput = throughput / p;
-    }
+    return result;
   }
-  return result;
+  // sky
+  return sample_sky(r.direction);
 }
 
 inline void render_rows(int start_row, int end_row, int width, int height, int samples_per_pixel, int max_depth, const Camera &camera, const Hittable &world, const LightList &lights, std::vector<Vec3> &framebuffer) {

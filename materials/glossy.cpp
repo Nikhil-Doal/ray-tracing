@@ -57,11 +57,17 @@ bool Glossy::scatter(const Ray &ray_in, const HitRecord &rec, Vec3 &attenuation,
 }
 
 double Glossy::scattering_pdf(const Ray &ray_in, const HitRecord &rec, const Ray &scattered) const {
-  // Mixed PDF: combine diffuse cosine PDF with specular lobe
   double cos_theta = rec.normal.dot(scattered.direction.normalize());
   double diffuse_pdf = cos_theta < 0 ? 0.0 : cos_theta / PI;
-  // For simplicity, use the diffuse pdf (MIS will handle the rest)
-  return diffuse_pdf * (1.0 - specular_strength) + 0.001; // small floor to avoid div by zero
+
+  // When the specular branch fires, we don't have a clean analytic pdf for
+  // the GGX-reflected direction in the cosine hemisphere measure.
+  // Return 0 for pure specular paths (handled as specular in the integrator)
+  // and the diffuse pdf weighted by the diffuse probability otherwise.
+  //
+  // Old code had `+ 0.001` floor which caused fireflies from huge weight ratios.
+  if (diffuse_pdf <= 0.0) return 0.0;
+  return diffuse_pdf * (1.0 - specular_strength);
 }
 
 Vec3 Glossy::albedo_at(const HitRecord &rec) const {

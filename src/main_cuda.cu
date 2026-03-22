@@ -24,10 +24,6 @@
 #include "../lights/directional_light.h"
 #include "../lights/area_light.h"
 
-// stbi_loadf is declared via hdr_texture.h / stb_image.h
-extern "C" float *stbi_loadf(char const *, int *, int *, int *, int);
-extern "C" void stbi_image_free(void *);
-
 static std::vector<GpuLight> convert_lights(const std::vector<std::shared_ptr<Light>> &lights) {
   std::vector<GpuLight> gpu_lights;
   for (auto &l : lights) {
