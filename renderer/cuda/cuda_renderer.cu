@@ -421,7 +421,7 @@ __device__ bool mat_scatter(const GpuScene &scene, const GpuMaterial &mat, const
       float d = unit_in.dot(rec.normal);
       GpuVec3 reflected = unit_in - rec.normal * (2.0f * d);
       // GGX-like lobe around reflected direction
-      GpuVec3 w = reflected.normalize();
+      GpuVec3 w = unit_in - rec.normal * (2.0f * unit_in.dot(rec.normal));
       GpuVec3 a_vec = (fabsf(w.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
       GpuVec3 v = w.cross(a_vec).normalize();
       GpuVec3 u = w.cross(v);
@@ -447,9 +447,10 @@ __device__ bool mat_scatter(const GpuScene &scene, const GpuMaterial &mat, const
       }
 
       scattered = {rec.point, spec_dir};
-      float cos_i = fmaxf(0.0f, rec.normal.dot(spec_dir.normalize()));
+      float cos_i = fmaxf(0.0f, half_vec.dot(spec_dir.normalize()));
       float f0 = 0.04f;
       float fresnel = f0 + (1.0f - f0) * powf(1.0f - cos_i, 5.0f);
+
       attenuation = GpuVec3{fresnel, fresnel, fresnel};
     } else {
       GpuVec3 w = rec.normal;
@@ -701,16 +702,16 @@ __global__ void render_kernel(float *fb, int width, int height, int samples, int
 
   // unique rng state per pixel
   curandState rng;
-  curand_init((unsigned long long) pixel + 1, 0, 0, &rng);
+  curand_init(1337ULL, (unsigned long long)pixel, 0, &rng);
 
   // Welford online mean and variance algorithm for adaptive sampling
   GpuVec3 mean(0,0,0);
   GpuVec3 M2(0,0,0); // sum deviation^2
   int n = 0;
 
-  const int MIN_SAMPLES = 16;
-  const int CHECK_EVERY = 4;
-  const float THRESHOLD = 0.01f;
+  const int MIN_SAMPLES = 128;
+  const int CHECK_EVERY = 32;
+  const float THRESHOLD = 0.002f;
 
   for (int s = 0; s < samples; ++s) {
     float u = (x + curand_uniform(&rng)) / (float)(width - 1);
@@ -730,7 +731,10 @@ __global__ void render_kernel(float *fb, int width, int height, int samples, int
 
     if (n >= MIN_SAMPLES && (n % CHECK_EVERY == 0)) {
       GpuVec3 variance = M2 * (1.0f / n);
-      if (variance.x < THRESHOLD && variance.y < THRESHOLD && variance.z < THRESHOLD) break;
+      float lum = 0.2126f * mean.x + 0.7152f * mean.y + 0.0722f * mean.z;
+      float rel_threshold = THRESHOLD * fmaxf(lum * lum, 1e-4f);
+      float max_var = fmaxf(variance.x, fmaxf(variance.y, variance.z));
+      if (max_var < rel_threshold) break;
     }
   }
   

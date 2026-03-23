@@ -13,10 +13,10 @@
 static SceneDesc build_sponza() {
   SceneDesc scene;
 
-  scene.width  = 1920;
-  scene.height = 1080;
+  scene.width  = 3840;
+  scene.height = 2160;
   scene.samples_per_pixel = 1000;
-  scene.max_depth = 60;
+  scene.max_depth = 128;
 
   // Camera — classic view down the atrium length
   scene.lookfrom = Vec3(-10.0, 2.0, 0.3);
