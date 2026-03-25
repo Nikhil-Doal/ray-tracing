@@ -349,9 +349,14 @@ __device__ void apply_normal_map(const GpuScene &scene, GpuHitRecord &rec) {
 
 // BVH traversal -> stack based to prevent recursion limit on gpu
 __device__ bool bvh_hit(const GpuScene &scene, const GpuRay &ray, float t_min, float t_max, GpuHitRecord &rec) {
-  int stack[64]; // hardcoded should be fine for most cases
+  int stack[128]; // hardcoded should be fine for most cases
   int top = 0;
   stack[top++] = scene.bvh_root;
+  if (top >= 128) {
+    // optional debug
+    printf("BVH max stack depth exceeded");
+    return false;
+}
 
   bool hit_anything = false;
   float closest = t_max;
@@ -381,9 +386,45 @@ __device__ bool bvh_hit(const GpuScene &scene, const GpuRay &ray, float t_min, f
         }
       }
     } else {
-      if (node.right >= 0) stack[top++] = node.right;
-      if (node.left >= 0) stack[top++] = node.left;
-    }
+        int left  = node.left;
+        int right = node.right;
+
+        bool hit_left  = false;
+        bool hit_right = false;
+
+        float tmin_l = t_min;
+        float tmax_l = closest;
+
+        float tmin_r = t_min;
+        float tmax_r = closest;
+
+        if (left >= 0) {
+          const GpuBVHNode &ln = scene.bvh_nodes[left];
+          hit_left = aabb_hit(ln, ray, tmin_l, tmax_l);
+        }
+
+        if (right >= 0) {
+          const GpuBVHNode &rn = scene.bvh_nodes[right];
+          hit_right = aabb_hit(rn, ray, tmin_r, tmax_r);
+        }
+
+        if (hit_left && hit_right) {
+          // push farther first, nearer last
+          if (tmin_l < tmin_r) {
+            stack[top++] = right;
+            stack[top++] = left;
+          } else {
+            stack[top++] = left;
+            stack[top++] = right;
+          }
+        }
+        else if (hit_left) {
+          stack[top++] = left;
+        }
+        else if (hit_right) {
+          stack[top++] = right;
+        }
+      }
   }
   
   // Apply bump map first, then normal map (same order as CPU)
@@ -401,105 +442,110 @@ __device__ bool bvh_hit(const GpuScene &scene, const GpuRay &ray, float t_min, f
 
 // check for scatter based on material
 __device__ bool mat_scatter(const GpuScene &scene, const GpuMaterial &mat, const GpuRay &ray_in, const GpuHitRecord &rec, GpuVec3 &attenuation, GpuRay &scattered, curandState *rng) {
-  if (mat.type == GpuMatType::LAMBERTIAN) {
-    // build ONB around normal
-    GpuVec3 w = rec.normal;
-    GpuVec3 a = (fabsf(w.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
-    GpuVec3 v = w.cross(a).normalize();
-    GpuVec3 u = w.cross(v);
-    // cosine weighted direction
-    GpuVec3 d = rand_cosine_direction(rng);
-    GpuVec3 dir = u*d.x + v*d.y + w*d.z;
-    scattered = {rec.point, dir};
-    attenuation = sample_texture(scene, mat.albedo_tex_id, rec.u, rec.v, mat.albedo);
-    return true;
-  } 
-  else if (mat.type == GpuMatType::GLOSSY) {
-    bool do_specular = (rand_f(rng) < mat.specular_strength);
-    if (do_specular) {
-      GpuVec3 unit_in = ray_in.direction.normalize();
-      float d = unit_in.dot(rec.normal);
-      GpuVec3 reflected = unit_in - rec.normal * (2.0f * d);
-      // GGX-like lobe around reflected direction
-      GpuVec3 w = unit_in - rec.normal * (2.0f * unit_in.dot(rec.normal));
-      GpuVec3 a_vec = (fabsf(w.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
-      GpuVec3 v = w.cross(a_vec).normalize();
-      GpuVec3 u = w.cross(v);
-
-      float r1 = rand_f(rng);
-      float r2 = rand_f(rng);
-      float a2 = mat.roughness * mat.roughness;
-      float cos_theta = sqrtf((1.0f - r1) / (1.0f + (a2 * a2 - 1.0f) * r1));
-      float sin_theta = sqrtf(1.0f - cos_theta * cos_theta);
-      float phi = 2.0f * GPU_PI * r2;
-
-      GpuVec3 half_vec = (u * (sin_theta * cosf(phi)) + v * (sin_theta * sinf(phi)) + w * cos_theta).normalize();
-      GpuVec3 spec_dir = unit_in - half_vec * (2.0f * unit_in.dot(half_vec));
-
-      if (spec_dir.dot(rec.normal) <= 0) {
-        // Below surface, fall back to diffuse
-        GpuVec3 dw = rec.normal;
-        GpuVec3 da = (fabsf(dw.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
-        GpuVec3 dv = dw.cross(da).normalize();
-        GpuVec3 du = dw.cross(dv);
-        GpuVec3 dd = rand_cosine_direction(rng);
-        spec_dir = du*dd.x + dv*dd.y + dw*dd.z;
-      }
-
-      scattered = {rec.point, spec_dir};
-      float cos_i = fmaxf(0.0f, half_vec.dot(spec_dir.normalize()));
-      float f0 = 0.04f;
-      float fresnel = f0 + (1.0f - f0) * powf(1.0f - cos_i, 5.0f);
-
-      attenuation = GpuVec3{fresnel, fresnel, fresnel};
-    } else {
+  switch(mat.type) {
+    case GpuMatType::LAMBERTIAN: {
+      // build ONB around normal
       GpuVec3 w = rec.normal;
       GpuVec3 a = (fabsf(w.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
       GpuVec3 v = w.cross(a).normalize();
       GpuVec3 u = w.cross(v);
+      // cosine weighted direction
       GpuVec3 d = rand_cosine_direction(rng);
       GpuVec3 dir = u*d.x + v*d.y + w*d.z;
       scattered = {rec.point, dir};
       attenuation = sample_texture(scene, mat.albedo_tex_id, rec.u, rec.v, mat.albedo);
-    }
-    return true;
-  }
-
-  else if (mat.type == GpuMatType::METAL) {
-    GpuVec3 unit = ray_in.direction.normalize();
-    float d = unit.dot(rec.normal);
-    GpuVec3 refl = unit - rec.normal * (2.0f * d);
-    GpuVec3 fuzz = rand_in_unit_sphere(rng) * mat.fuzz;
-    scattered = {rec.point + rec.normal * 1e-4f, refl + fuzz};
-    attenuation = sample_texture(scene, mat.albedo_tex_id, rec.u, rec.v, mat.albedo);
-    return scattered.direction.dot(rec.normal) > 0;
-  } 
+      return true;
+    } 
+    case GpuMatType::GLOSSY: {
+      bool do_specular = (rand_f(rng) < mat.specular_strength);
+      if (do_specular) {
+        GpuVec3 unit_in = ray_in.direction.normalize();
+        float d = unit_in.dot(rec.normal);
+        GpuVec3 reflected = unit_in - rec.normal * (2.0f * d);
+        // GGX-like lobe around reflected direction
+        GpuVec3 w = unit_in - rec.normal * (2.0f * unit_in.dot(rec.normal));
+        GpuVec3 a_vec = (fabsf(w.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
+        GpuVec3 v = w.cross(a_vec).normalize();
+        GpuVec3 u = w.cross(v);
   
-  else if (mat.type == GpuMatType::DIELECTRIC) {
-    attenuation = {1,1,1};
-    float ratio = rec.front_face ? (1.0f/mat.ir) : mat.ir;
-    GpuVec3 unit = ray_in.direction.normalize();
-    float cos_t = fminf(-unit.dot(rec.normal), 1.0f);
-    float sin_t = sqrtf(1.0f - cos_t*cos_t);
-    bool cannot = ratio * sin_t > 1.0f;
-    // Schlick approximation
-    float r0 = (1-ratio)/(1+ratio); r0 = r0*r0;
-    float refl = r0 + (1-r0)*powf(1-cos_t, 5);
-    GpuVec3 dir;
-    if (cannot || refl > rand_f(rng)) dir = unit - rec.normal * (2.0f * unit.dot(rec.normal));
-    else {
-      GpuVec3 perp = (unit + rec.normal * cos_t) * ratio;
-      GpuVec3 para = rec.normal * (-sqrtf(fabsf(1.0f - perp.dot(perp))));
-      dir = perp + para;
+        float r1 = rand_f(rng);
+        float r2 = rand_f(rng);
+        float a2 = mat.roughness * mat.roughness;
+        float cos_theta = sqrtf((1.0f - r1) / (1.0f + (a2 * a2 - 1.0f) * r1));
+        float sin_theta = sqrtf(1.0f - cos_theta * cos_theta);
+        float phi = 2.0f * GPU_PI * r2;
+  
+        GpuVec3 half_vec = (u * (sin_theta * cosf(phi)) + v * (sin_theta * sinf(phi)) + w * cos_theta).normalize();
+        GpuVec3 spec_dir = unit_in - half_vec * (2.0f * unit_in.dot(half_vec));
+  
+        if (spec_dir.dot(rec.normal) <= 0) {
+          // Below surface, fall back to diffuse
+          GpuVec3 dw = rec.normal;
+          GpuVec3 da = (fabsf(dw.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
+          GpuVec3 dv = dw.cross(da).normalize();
+          GpuVec3 du = dw.cross(dv);
+          GpuVec3 dd = rand_cosine_direction(rng);
+          spec_dir = du*dd.x + dv*dd.y + dw*dd.z;
+        }
+  
+        scattered = {rec.point, spec_dir};
+        float cos_i = fmaxf(0.0f, half_vec.dot(spec_dir.normalize()));
+        float f0 = 0.04f;
+        float fresnel = f0 + (1.0f - f0) * powf(1.0f - cos_i, 5.0f);
+  
+        attenuation = GpuVec3{fresnel, fresnel, fresnel};
+      } else {
+        GpuVec3 w = rec.normal;
+        GpuVec3 a = (fabsf(w.x) > 0.9f) ? GpuVec3{0,1,0} : GpuVec3{1,0,0};
+        GpuVec3 v = w.cross(a).normalize();
+        GpuVec3 u = w.cross(v);
+        GpuVec3 d = rand_cosine_direction(rng);
+        GpuVec3 dir = u*d.x + v*d.y + w*d.z;
+        scattered = {rec.point, dir};
+        attenuation = sample_texture(scene, mat.albedo_tex_id, rec.u, rec.v, mat.albedo);
+      }
+      return true;
+    }
+  
+    case GpuMatType::METAL: {
+      GpuVec3 unit = ray_in.direction.normalize();
+      float d = unit.dot(rec.normal);
+      GpuVec3 refl = unit - rec.normal * (2.0f * d);
+      GpuVec3 fuzz = rand_in_unit_sphere(rng) * mat.fuzz;
+      scattered = {rec.point + rec.normal * 1e-4f, refl + fuzz};
+      attenuation = sample_texture(scene, mat.albedo_tex_id, rec.u, rec.v, mat.albedo);
+      return scattered.direction.dot(rec.normal) > 0;
+    } 
+    
+    case GpuMatType::DIELECTRIC: {
+      attenuation = {1,1,1};
+      float ratio = rec.front_face ? (1.0f/mat.ir) : mat.ir;
+      GpuVec3 unit = ray_in.direction.normalize();
+      float cos_t = fminf(-unit.dot(rec.normal), 1.0f);
+      float sin_t = sqrtf(1.0f - cos_t*cos_t);
+      bool cannot = ratio * sin_t > 1.0f;
+      // Schlick approximation
+      float r0 = (1-ratio)/(1+ratio); r0 = r0*r0;
+      float refl = r0 + (1-r0)*powf(1-cos_t, 5);
+      GpuVec3 dir;
+      if (cannot || refl > rand_f(rng)) dir = unit - rec.normal * (2.0f * unit.dot(rec.normal));
+      else {
+        GpuVec3 perp = (unit + rec.normal * cos_t) * ratio;
+        GpuVec3 para = rec.normal * (-sqrtf(fabsf(1.0f - perp.dot(perp))));
+        dir = perp + para;
+      }
+  
+      scattered = {rec.point, dir};
+      return true;
+    }
+  
+    case GpuMatType::DIFFUSE_LIGHT: {
+      return false;
     }
 
-    scattered = {rec.point, dir};
-    return true;
-
-  } else if (mat.type == GpuMatType::DIFFUSE_LIGHT) {
-    return false;
+    default:
+      return false;
   }
-  return false;
 }
 
 // MIS helpers

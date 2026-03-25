@@ -234,11 +234,11 @@ inline int build_flat_bvh_recursive(std::vector<GpuPrimitive> &primitives, std::
   if (node.aabb_max.y - node.aabb_min.y < PAD) { node.aabb_min.y -= PAD; node.aabb_max.y += PAD; }
   if (node.aabb_max.z - node.aabb_min.z < PAD) { node.aabb_min.z -= PAD; node.aabb_max.z += PAD; }
 
-  if (end - start == 1) {
-    // these are the tree leafs
+  const int LEAF_SIZE = 4;
+  if (end - start <= LEAF_SIZE) { // leafs
     node.left = node.right = -1;
     node.prim_start = start;
-    node.prim_count = 1;
+    node.prim_count = end - start;
   } else {
     node.prim_count = 0;
     // split along the longest axis 
@@ -247,14 +247,13 @@ inline int build_flat_bvh_recursive(std::vector<GpuPrimitive> &primitives, std::
     if (extent.y > extent.x) axis = 1;
     if (extent.z > (axis==0 ? extent.x : extent.y)) axis = 2;
 
-    // sort along chosen axis created by centeroid
-    std::sort(primitives.begin() + start, primitives.begin() + end, [axis](const GpuPrimitive &a, const GpuPrimitive &b) {
-      float ca = (a.type == GpuGeomType::SPHERE) ? a.sphere.center[axis] : (a.triangle.v0[axis] + a.triangle.v1[axis] + a.triangle.v2[axis]) / 3.0f;
-      float cb = (b.type == GpuGeomType::SPHERE) ? b.sphere.center[axis] : (b.triangle.v0[axis] + b.triangle.v1[axis] + b.triangle.v2[axis]) / 3.0f;
-      return ca < cb;
-    });
-
     int mid = (start + end) / 2;
+    // sort along chosen axis created by centeroid
+    std::nth_element(primitives.begin() + start, primitives.begin() + mid, primitives.begin() + end, [axis](const GpuPrimitive &a, const GpuPrimitive &b) {
+        float ca =(a.type == GpuGeomType::SPHERE) ? a.sphere.center[axis] : (a.triangle.v0[axis] + a.triangle.v1[axis] + a.triangle.v2[axis]) / 3.0f;
+        float cb =(b.type == GpuGeomType::SPHERE) ? b.sphere.center[axis] : (b.triangle.v0[axis] + b.triangle.v1[axis] + b.triangle.v2[axis]) / 3.0f;
+        return ca < cb;
+    });
 
     //building childern, since vector can reallocate, we use indexes instead of addresses (pass by ref) after recursive call
     int left_index = build_flat_bvh_recursive(primitives, nodes, start, mid);

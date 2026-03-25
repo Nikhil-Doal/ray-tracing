@@ -42,6 +42,7 @@ set(SHARED_SOURCES
     scenes/scene_normal_map_test.cpp
     scenes/scene_buildings.cpp
     scenes/scene_sponza.cpp
+    scenes/scene_san_miguel.cpp
 )
 
 # ---- CPU target ----

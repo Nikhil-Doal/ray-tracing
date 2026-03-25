@@ -75,13 +75,11 @@ int main(int argc, char *argv[]) {
   int H   = desc.height;
   int spp = desc.samples_per_pixel;
 
-  // Build BVH (needed for flat-scene conversion)
-  auto bvh = desc.build_bvh();
   Camera camera = desc.build_camera();
 
   // ---- Convert scene to flat GPU arrays ----
   std::cout << "Converting scene to GPU format...\n";
-  FlatScene flat = build_flat_scene(*bvh);
+  FlatScene flat = build_flat_scene(desc.world);
 
   std::vector<GpuLight> gpu_lights = convert_lights(desc.lights);
 
