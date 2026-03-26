@@ -14,7 +14,7 @@
 #include "../scenes/scene_registry.h"
 
 int main(int argc, char *argv[]) {
-  std::string scene_name  = (argc > 1) ? argv[1] : "brick_demo";
+  std::string scene_name  = (argc > 1) ? argv[1] : "random_spheres";
   std::string output_path = (argc > 2) ? argv[2] : "../../image.png";
 
   std::cout << "Available scenes:";

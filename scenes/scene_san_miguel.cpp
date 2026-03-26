@@ -17,7 +17,7 @@ static SceneDesc build_san_miguel() {
 
   scene.width  = 1920;
   scene.height = 1080;
-  scene.samples_per_pixel = 750;
+  scene.samples_per_pixel = 500;
   scene.max_depth = 20;
   // scene.width  = 300;
   // scene.height = 200;

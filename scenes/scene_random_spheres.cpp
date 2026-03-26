@@ -12,15 +12,15 @@
 static SceneDesc build_random_spheres() {
   SceneDesc scene;
 
-  scene.width  = 1200;
-  scene.height = 800;
-  scene.samples_per_pixel = 64;
-  scene.max_depth = 15;
+  scene.width  = 1920;
+  scene.height = 1080;
+  scene.samples_per_pixel = 500;
+  scene.max_depth = 24;
 
   scene.lookfrom = Vec3(13, 2, 3);
   scene.lookat   = Vec3(0, 0, 0);
   scene.vfov     = 20.0;
-  scene.aperture = 0.1;
+  scene.aperture = 1;
 
   // HDR sky for environment lighting (gradient fallback if file missing)
   scene.sky_hdr_path  = "../../assets/sky.hdr";

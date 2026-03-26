@@ -1,5 +1,5 @@
 // CUDA path entry point
-// Scene is selected by name from the registry (default: "brick_demo")
+// Scene is selected by name from the registry (default: "random_spheres")
 // Usage: ./render_cuda [scene_name] [output_path]
 
 #include <iostream>
@@ -56,7 +56,7 @@ static GpuCamera convert_camera(const Camera &cam) {
 }
 
 int main(int argc, char *argv[]) {
-  std::string scene_name  = (argc > 1) ? argv[1] : "brick_demo";
+  std::string scene_name  = (argc > 1) ? argv[1] : "random_spheres";
   std::string output_path = (argc > 2) ? argv[2] : "../../image_cuda.png";
 
   std::cout << "Available scenes:";

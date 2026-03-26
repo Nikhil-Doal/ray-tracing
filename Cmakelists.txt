@@ -37,10 +37,8 @@ set(SHARED_SOURCES
     lights/directional_light.cpp
     lights/area_light.cpp
     scenes/scene_registry.cpp
-    scenes/scene_brick_demo.cpp
     scenes/scene_random_spheres.cpp
     scenes/scene_normal_map_test.cpp
-    scenes/scene_buildings.cpp
     scenes/scene_sponza.cpp
     scenes/scene_san_miguel.cpp
 )
