@@ -1,7 +1,4 @@
-render.exe
-test.exe
 build/
-assets/models/pine_forest
-assets/models/San_Miguel
-README.md
+\assets/models/San_Miguel 
+# ^ too large for github
 .vscode/
