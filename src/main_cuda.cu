@@ -128,8 +128,7 @@ int main(int argc, char *argv[]) {
 
   std::cout << "Rendering " << W << "x" << H << " @ " << spp << " spp on GPU...\n";
   std::vector<float> fb;
-  cuda_render(params, host_scene, gpu_lights, fb);
-
+  cuda_render(params, host_scene, gpu_lights, fb, output_path);
   if (sky_data) stbi_image_free(sky_data);
 
   // Convert float buffer to Vec3 framebuffer

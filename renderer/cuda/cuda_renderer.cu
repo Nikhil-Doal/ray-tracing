@@ -4,6 +4,8 @@
 #include <cuda_runtime.h>
 #include <cstdio>
 #include <cmath>
+#include "../../utils/image_writer.h"
+
 
 // macro for error check
 #define CUDA_CHECK(x) do { \
@@ -68,9 +70,10 @@ __device__ GpuVec3 sample_texture(const GpuScene &scene, int tex_id, float u, fl
   auto get = [&](int ii, int jj) -> GpuVec3 {
     const unsigned char *p = base + (jj * tex.width + ii) * 3;
     // sRGB → linear (approx gamma 2.2)
-    float r = __powf(p[0] / 255.0f, 2.2f);
-    float g = __powf(p[1] / 255.0f, 2.2f);
-    float b = __powf(p[2] / 255.0f, 2.2f);
+    // Fast sRGB→linear: x² is a close approximation to x^2.2 and 10-50× faster
+    float r = (p[0] / 255.0f); r = r * r;
+    float g = (p[1] / 255.0f); g = g * g;
+    float b = (p[2] / 255.0f); b = b * b;
     return {r, g, b};
   };
 
@@ -351,24 +354,18 @@ __device__ void apply_normal_map(const GpuScene &scene, GpuHitRecord &rec) {
 __device__ bool bvh_hit(const GpuScene &scene, const GpuRay &ray, float t_min, float t_max, GpuHitRecord &rec) {
   int stack[128]; // hardcoded should be fine for most cases
   int top = 0;
+  if (scene.bvh_root < 0 || scene.bvh_root >= scene.num_bvh_nodes) return false;
+  if (!aabb_hit(scene.bvh_nodes[scene.bvh_root], ray, t_min, t_max)) return false;
   stack[top++] = scene.bvh_root;
-  if (top >= 128) {
-    // optional debug
-    printf("BVH max stack depth exceeded");
-    return false;
-}
 
   bool hit_anything = false;
   float closest = t_max;
 
   while (top > 0) {
     int idx = stack[--top];
-    if (idx < 0 || idx >= scene.num_bvh_nodes) continue;
-
     const GpuBVHNode &node = scene.bvh_nodes[idx];
-    if (!aabb_hit(node, ray, t_min, closest)) continue;
-
     if (node.prim_count > 0) {
+      // Leaf — intersect primitives
       for (int i = node.prim_start; i < node.prim_start + node.prim_count; ++i) {
         GpuHitRecord tmp{};
         bool hit = false;
@@ -392,39 +389,39 @@ __device__ bool bvh_hit(const GpuScene &scene, const GpuRay &ray, float t_min, f
         bool hit_left  = false;
         bool hit_right = false;
 
-        float tmin_l = t_min;
-        float tmax_l = closest;
-
-        float tmin_r = t_min;
-        float tmax_r = closest;
-
-        if (left >= 0) {
-          const GpuBVHNode &ln = scene.bvh_nodes[left];
-          hit_left = aabb_hit(ln, ray, tmin_l, tmax_l);
-        }
-
-        if (right >= 0) {
-          const GpuBVHNode &rn = scene.bvh_nodes[right];
-          hit_right = aabb_hit(rn, ray, tmin_r, tmax_r);
-        }
+        if (left >= 0)
+          hit_left = aabb_hit(scene.bvh_nodes[left], ray, t_min, closest);
+        if (right >= 0)
+          hit_right = aabb_hit(scene.bvh_nodes[right], ray, t_min, closest);
 
         if (hit_left && hit_right) {
-          // push farther first, nearer last
-          if (tmin_l < tmin_r) {
-            stack[top++] = right;
-            stack[top++] = left;
+          // Push far child first, near child last (popped first)
+          // Use centroid midpoint of each AABB along ray to approximate entry
+          const GpuBVHNode &ln = scene.bvh_nodes[left];
+          const GpuBVHNode &rn = scene.bvh_nodes[right];
+          float tenter_l = fmaxf(fmaxf(
+            fminf((ln.aabb_min.x - ray.origin.x) / ray.direction.x,
+                  (ln.aabb_max.x - ray.origin.x) / ray.direction.x),
+            fminf((ln.aabb_min.y - ray.origin.y) / ray.direction.y,
+                  (ln.aabb_max.y - ray.origin.y) / ray.direction.y)),
+            fminf((ln.aabb_min.z - ray.origin.z) / ray.direction.z,
+                  (ln.aabb_max.z - ray.origin.z) / ray.direction.z));
+          float tenter_r = fmaxf(fmaxf(
+            fminf((rn.aabb_min.x - ray.origin.x) / ray.direction.x,
+                  (rn.aabb_max.x - ray.origin.x) / ray.direction.x),
+            fminf((rn.aabb_min.y - ray.origin.y) / ray.direction.y,
+                  (rn.aabb_max.y - ray.origin.y) / ray.direction.y)),
+            fminf((rn.aabb_min.z - ray.origin.z) / ray.direction.z,
+                  (rn.aabb_max.z - ray.origin.z) / ray.direction.z));
+          if (tenter_l < tenter_r) {
+            if (top < 126) { stack[top++] = right; stack[top++] = left; }
           } else {
-            stack[top++] = left;
-            stack[top++] = right;
+            if (top < 126) { stack[top++] = left; stack[top++] = right; }
           }
         }
-        else if (hit_left) {
-          stack[top++] = left;
-        }
-        else if (hit_right) {
-          stack[top++] = right;
-        }
-      }
+        else if (hit_left)  { if (top < 127) stack[top++] = left; }
+        else if (hit_right) { if (top < 127) stack[top++] = right; }
+    }
   }
   
   // Apply bump map first, then normal map (same order as CPU)
@@ -535,7 +532,8 @@ __device__ bool mat_scatter(const GpuScene &scene, const GpuMaterial &mat, const
         dir = perp + para;
       }
   
-      scattered = {rec.point, dir};
+      GpuVec3 offset_normal = rec.front_face ? rec.normal * -1e-4f : rec.normal * 1e-4f;
+      scattered = {rec.point + offset_normal, dir};
       return true;
     }
   
@@ -721,7 +719,8 @@ __device__ GpuVec3 ray_color(GpuRay ray, const GpuScene &scene, int max_depth, c
     // Russian roulette after depth 3 — unbiased early termination
     if (depth > 3) {
       float p = fmaxf(throughput.x, fmaxf(throughput.y, throughput.z));
-      p = fminf(p, 0.95f);  // cap survival probability to avoid infinite paths
+      if (p <= 0.0f) break;
+      p = fminf(p, 0.95f);
       if (rand_f(rng) > p) break;
       throughput = throughput * (1.0f / p);
     }
@@ -738,61 +737,67 @@ __device__ GpuRay get_camera_ray(const GpuCamera &cam, float s, float t, curandS
   return {cam.origin, dir};
 }
 
+__global__ void init_rng_kernel(curandState *states, int width, int height) {
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+  int pixel = y * width + x;
+  curand_init(1337ULL + (unsigned long long)pixel, 0, 0, &states[pixel]);
+}
+
 // Main renderer kernel
-__global__ void render_kernel(float *fb, int width, int height, int samples, int max_depth, GpuCamera camera, GpuScene scene) {
+// Batch render kernel — accumulates batch_size samples into accum buffer.
+// Called repeatedly from the host loop; each launch is short enough to avoid
+// TDR kills and lets us download progressive results between batches.
+__global__ void render_kernel(float *accum, curandState *rng_states,
+                              int width, int height,
+                              int batch_size, int max_depth,
+                              GpuCamera camera, GpuScene scene) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height) return;
 
   int pixel = y * width + x;
 
-  // unique rng state per pixel
-  curandState rng;
-  curand_init(1337ULL, (unsigned long long)pixel, 0, &rng);
-
-  // Welford online mean and variance algorithm for adaptive sampling
-  GpuVec3 mean(0,0,0);
-  GpuVec3 M2(0,0,0); // sum deviation^2
-  int n = 0;
-
-  const int MIN_SAMPLES = 128;
-  const int CHECK_EVERY = 32;
-  const float THRESHOLD = 0.002f;
-
-  for (int s = 0; s < samples; ++s) {
+  // Seed per pixel, sequence per batch — fast init (sequence is small),
+  // statistically independent across both pixels and batches.
+  curandState rng = rng_states[pixel];
+  for (int s = 0; s < batch_size; ++s) {
     float u = (x + curand_uniform(&rng)) / (float)(width - 1);
     float v = (y + curand_uniform(&rng)) / (float)(height - 1);
     GpuRay ray = get_camera_ray(camera, u, v, &rng);
     GpuVec3 color = ray_color(ray, scene, max_depth, &rng);
 
-    // Clamp individual sample contribution to prevent single outlier from dominating
+    // Discard NaN/Inf samples entirely — prevents poisoning the accumulator
+    if (!isfinite(color.x) || !isfinite(color.y) || !isfinite(color.z))
+      continue;
+
     color = clamp_vec(color, GPU_MAX_THROUGHPUT);
 
-    // welford algorithm
-    n++;
-    GpuVec3 delta = color - mean;
-    mean = mean + delta * (1.0f / n);
-    GpuVec3 delta2 = color - mean;
-    M2 = M2 + GpuVec3(delta.x*delta2.x, delta.y*delta2.y, delta.z*delta2.z);
-
-    if (n >= MIN_SAMPLES && (n % CHECK_EVERY == 0)) {
-      GpuVec3 variance = M2 * (1.0f / n);
-      float lum = 0.2126f * mean.x + 0.7152f * mean.y + 0.0722f * mean.z;
-      float rel_threshold = THRESHOLD * fmaxf(lum * lum, 1e-4f);
-      float max_var = fmaxf(variance.x, fmaxf(variance.y, variance.z));
-      if (max_var < rel_threshold) break;
-    }
+    accum[pixel * 3 + 0] += color.x;
+    accum[pixel * 3 + 1] += color.y;
+    accum[pixel * 3 + 2] += color.z;
   }
-  
-  // gamma correction
-  fb[pixel*3+0] = fmaxf(0.0f, mean.x);
-  fb[pixel*3+1] = fmaxf(0.0f, mean.y);
-  fb[pixel*3+2] = fmaxf(0.0f, mean.z);
+  rng_states[pixel] = rng;
+}
+
+// Divide accumulated radiance by sample count to produce final mean image
+__global__ void normalize_kernel(float *fb, const float *accum,
+                                 int width, int height, int total_samples) {
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  int pixel = y * width + x;
+  float inv = 1.0f / (float)total_samples;
+  fb[pixel * 3 + 0] = fmaxf(0.0f, accum[pixel * 3 + 0] * inv);
+  fb[pixel * 3 + 1] = fmaxf(0.0f, accum[pixel * 3 + 1] * inv);
+  fb[pixel * 3 + 2] = fmaxf(0.0f, accum[pixel * 3 + 2] * inv);
 }
 
 
 // main host entry point called in main_cuda.cu
-void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, const std::vector<GpuLight> &host_lights, std::vector<float> &out_fb) {
+void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, const std::vector<GpuLight> &host_lights, std::vector<float> &out_fb, const std::string &output_path) {
   int W = params.width;
   int H = params.height;
   out_fb.resize(W*H*3);
@@ -842,23 +847,72 @@ void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, con
   }
   d_scene.num_lights = (int)host_lights.size();
 
-  // output framebuffer GPU
-  float *d_fb;
-  CUDA_CHECK(cudaMalloc(&d_fb, W * H * 3 * sizeof(float)));
+    // output + accumulation framebuffers on GPU
+  float *d_fb, *d_accum;
+  size_t fb_bytes = W * H * 3 * sizeof(float);
+  CUDA_CHECK(cudaMalloc(&d_fb, fb_bytes));
+  CUDA_CHECK(cudaMalloc(&d_accum, fb_bytes));
+  CUDA_CHECK(cudaMemset(d_accum, 0, fb_bytes));
 
-  // launch
+  // launch in batches for progressive output + TDR safety
   dim3 block(16, 16);
   dim3 grid((W + 15) / 16, (H + 15) / 16);
-  
-  render_kernel<<<grid, block>>>( d_fb, W, H, params.samples_per_pixel, params.max_depth, params.camera, d_scene);
+
+  const int BATCH_SIZE = 4;
+  int total_spp = params.samples_per_pixel;
+  int num_batches = (total_spp + BATCH_SIZE - 1) / BATCH_SIZE;
+
+  curandState *d_rng;
+  CUDA_CHECK(cudaMalloc(&d_rng, W * H * sizeof(curandState)));
+  init_rng_kernel<<<grid, block>>>(d_rng, W, H);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  printf("RNG states initialized\n");
+
+  for (int b = 0; b < num_batches; ++b) {
+    int spp_this_batch = (b < num_batches - 1) ? BATCH_SIZE
+                                                : total_spp - b * BATCH_SIZE;
+
+    render_kernel<<<grid, block>>>(d_accum, d_rng, W, H,
+                                   spp_this_batch, params.max_depth,
+                                   params.camera, d_scene);
+
+    CUDA_CHECK(cudaGetLastError());
+
+    int completed = (b + 1) * BATCH_SIZE;
+    if (completed < total_spp) completed = (b + 1 == num_batches) ? total_spp : completed;
+
+    // Sync + progress every few batches (every ~128 samples)
+    {      
+      CUDA_CHECK(cudaDeviceSynchronize());
+      int done = (b + 1 == num_batches) ? total_spp
+                                        : (b + 1) * BATCH_SIZE;
+      printf("Progress: %d / %d samples (%.1f%%)\n",
+             done, total_spp, 100.0f * done / total_spp);
+
+      // ---- Optional: save progressive image here ----
+      if (done % 8 == 0 || b == num_batches - 1) {
+        normalize_kernel<<<grid, block>>>(d_fb, d_accum, W, H, done);
+        cudaDeviceSynchronize();
+        cudaMemcpy(out_fb.data(), d_fb, fb_bytes, cudaMemcpyDeviceToHost);
+        // ... save to disk ...
+        std::vector<Vec3> fb_vec3(W * H);
+        for (int i = 0; i < W * H; ++i)
+          fb_vec3[i] = Vec3(out_fb[i*3], out_fb[i*3+1], out_fb[i*3+2]);
+        save_png(output_path, W, H, fb_vec3, 1);
+        printf("  -> Saved progressive image (%d spp)\n", done);
+      }
+    }
+  }
+
+  // Final normalize + download
+  normalize_kernel<<<grid, block>>>(d_fb, d_accum, W, H, total_spp);
   CUDA_CHECK(cudaGetLastError());
   CUDA_CHECK(cudaDeviceSynchronize());
-
-  // download to host
-  CUDA_CHECK(cudaMemcpy(out_fb.data(), d_fb, W * H * 3 * sizeof(float), cudaMemcpyDeviceToHost));
+  CUDA_CHECK(cudaMemcpy(out_fb.data(), d_fb, fb_bytes, cudaMemcpyDeviceToHost));
 
   // cleanup all memory
   cudaFree(d_fb);
+  cudaFree(d_accum);
   cudaFree(d_scene.primitives);
   cudaFree(d_scene.materials);
   cudaFree(d_scene.bvh_nodes);
@@ -866,4 +920,5 @@ void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, con
   if (d_scene.tex_data)  cudaFree(d_scene.tex_data);
   if (d_scene.textures)  cudaFree(d_scene.textures);
   if (d_scene.sky.data) cudaFree(d_scene.sky.data);
+  cudaFree(d_rng);
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include "cuda_scene.cuh"
 #include <vector>
+#include <string>
 
 struct CudaRenderParams {
   int width; 
@@ -12,6 +13,6 @@ struct CudaRenderParams {
 
 // main entry point called from main_cuda.cu
 // uploads scene to gpu, launches kerner and downloads result
-void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, const std::vector<GpuLight> &host_lights, std::vector<float> &out_framebuffer);
+void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, const std::vector<GpuLight> &host_lights, std::vector<float> &out_framebuffer, const std::string &output_path = "");
 // out_framebuffer flat rbg floats -> size = 3wh
 // already gamma corrected -> passes to save_png with samples = 1
