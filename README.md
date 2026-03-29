@@ -1,4 +1,4 @@
-# Physically-Based Path Tracer
+# Physically-Based Ray Tracer
 
 A high-performance, physically-based path tracer written in C++ with CUDA GPU acceleration. The renderer supports production-scale triangle meshes, HDR environment lighting, physically-based materials, and progressive rendering — targeting offline image synthesis with accurate global illumination.
 

@@ -9,15 +9,13 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# ---- stb implementation files (compiled exactly once) ----
-# These dedicated TUs define STB_IMAGE_IMPLEMENTATION / STB_IMAGE_WRITE_IMPLEMENTATION
-# so that no other source file needs to. Eliminates ODR violations.
+# ---- stb (compiled once) ---------------------------------------------------
 set(STB_SOURCES
     external/stb_image_impl.cpp
     external/stb_image_write_impl.cpp
 )
 
-# ---- shared source files ----
+# ---- shared sources --------------------------------------------------------
 set(SHARED_SOURCES
     core/vec3.cpp
     core/ray.cpp
@@ -41,77 +39,67 @@ set(SHARED_SOURCES
     scenes/scene_normal_map_test.cpp
     scenes/scene_sponza.cpp
     scenes/scene_san_miguel.cpp
+    scenes/scene_test.cpp
 )
 
-# ---- CPU target ----
+find_package(Threads REQUIRED)
+
+set(CXX_OPT
+    $<$<CXX_COMPILER_ID:MSVC>:/O2 /W3>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O3 -march=native>
+)
+
+# ---- CPU renderer ----------------------------------------------------------
 add_executable(render
     src/main.cpp
     ${SHARED_SOURCES}
     ${STB_SOURCES}
 )
 target_include_directories(render PRIVATE .)
-target_compile_options(render PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/O2 /W3>
-    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O3 -march=native>
-)
-find_package(Threads REQUIRED)
+target_compile_options(render PRIVATE ${CXX_OPT})
 target_link_libraries(render PRIVATE Threads::Threads)
 
-# ---- test target ----
-# add_executable(test_render
-#     src/test.cpp
-#     ${SHARED_SOURCES}
-#     ${STB_SOURCES}
-# )
-# target_include_directories(test_render PRIVATE .)
-# target_compile_options(test_render PRIVATE
-#     $<$<CXX_COMPILER_ID:MSVC>:/O2 /W3>
-#     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O3 -march=native>
-# )
-# target_link_libraries(test_render PRIVATE Threads::Threads)
-
-# ---- CUDA target ----
+# ---- CUDA ------------------------------------------------------------------
 include(CheckLanguage)
 check_language(CUDA)
 
 if(CMAKE_CUDA_COMPILER)
     enable_language(CUDA)
     set(CMAKE_CUDA_STANDARD 17)
-
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
         set(CMAKE_CUDA_ARCHITECTURES 86)
     endif()
 
+    set(CUDA_OPT
+        $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math --expt-relaxed-constexpr>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/O2 /W3>
+    )
+
+    # ---- CUDA renderer -----------------------------------------------------
     add_executable(render_cuda
         src/main_cuda.cu
         renderer/cuda/cuda_renderer.cu
         ${SHARED_SOURCES}
         ${STB_SOURCES}
     )
-
     target_include_directories(render_cuda PRIVATE .)
+    set_target_properties(render_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+    target_compile_options(render_cuda PRIVATE ${CUDA_OPT})
+    target_link_libraries(render_cuda PRIVATE Threads::Threads curand)
 
-    set_target_properties(render_cuda PROPERTIES
-        CUDA_SEPARABLE_COMPILATION ON
+    add_executable(benchmark
+        src/benchmark/test.cu
+        renderer/cuda/cuda_renderer.cu
+        ${SHARED_SOURCES}
+        ${STB_SOURCES}
     )
+    target_include_directories(benchmark PRIVATE .)
+    set_target_properties(benchmark PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+    target_compile_options(benchmark PRIVATE ${CUDA_OPT})
+    target_link_libraries(benchmark PRIVATE Threads::Threads curand)
 
-    target_compile_options(render_cuda PRIVATE
-        $<$<COMPILE_LANGUAGE:CUDA>:
-            --use_fast_math
-            --expt-relaxed-constexpr
-        >
-        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:
-            /O2 /W3
-        >
-    )
-
-    target_link_libraries(render_cuda PRIVATE
-        Threads::Threads
-        curand
-    )
-
-    message(STATUS "CUDA ${CMAKE_CUDA_VERSION} found — render_cuda target enabled")
+    message(STATUS "CUDA ${CMAKE_CUDA_VERSION} found — render_cuda and benchmark enabled")
     message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 else()
-    message(STATUS "CUDA not found — only CPU render available")
+    message(STATUS "CUDA not found — only CPU render target built")
 endif()

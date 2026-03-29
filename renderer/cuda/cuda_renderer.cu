@@ -890,7 +890,7 @@ void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, con
              done, total_spp, 100.0f * done / total_spp);
 
       // ---- Optional: save progressive image here ----
-      if (done % 8 == 0 || b == num_batches - 1) {
+      if (!output_path.empty() && (done % 8 == 0 || b == num_batches - 1)) {
         normalize_kernel<<<grid, block>>>(d_fb, d_accum, W, H, done);
         cudaDeviceSynchronize();
         cudaMemcpy(out_fb.data(), d_fb, fb_bytes, cudaMemcpyDeviceToHost);

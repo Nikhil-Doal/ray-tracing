@@ -12,10 +12,10 @@
 static SceneDesc build_random_spheres() {
   SceneDesc scene;
 
-  scene.width  = 1920;
-  scene.height = 1080;
-  scene.samples_per_pixel = 500;
-  scene.max_depth = 24;
+  scene.width  = 800;
+  scene.height = 400;
+  scene.samples_per_pixel = 100;
+  scene.max_depth = 16;
 
   scene.lookfrom = Vec3(13, 2, 3);
   scene.lookat   = Vec3(0, 0, 0);
