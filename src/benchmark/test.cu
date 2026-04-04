@@ -240,9 +240,9 @@ int main(int argc, char *argv[]) {
     const Camera cam = d.build_camera();
     std::vector<Result> results; results.reserve(4);
 
-    hr(); std::cout << "  [1/4] Raw CPU (no BVH, single-threaded)...\n"; std::cout.flush();
-    results.push_back(bench_raw(d, cam));
-    std::cout << "        " << fmt_time(results.back().render_s) << "\n";
+    // hr(); std::cout << "  [1/4] Raw CPU (no BVH, single-threaded)...\n"; std::cout.flush();
+    // results.push_back(bench_raw(d, cam));
+    // std::cout << "        " << fmt_time(results.back().render_s) << "\n";
 
     hr(); std::cout << "  [2/4] BVH CPU (single-threaded)...\n"; std::cout.flush();
     results.push_back(bench_bvh_single(d, cam));

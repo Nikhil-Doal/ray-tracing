@@ -69,8 +69,8 @@ __device__ GpuVec3 sample_texture(const GpuScene &scene, int tex_id, float u, fl
 
   auto get = [&](int ii, int jj) -> GpuVec3 {
     const unsigned char *p = base + (jj * tex.width + ii) * 3;
-    // sRGB → linear (approx gamma 2.2)
-    // Fast sRGB→linear: x² is a close approximation to x^2.2 and 10-50× faster
+    // sRGB to linear (approx gamma 2.2)
+    // Fast sRGB to linear: x2 is a close approximation to x^2.2 and much faster
     float r = (p[0] / 255.0f); r = r * r;
     float g = (p[1] / 255.0f); g = g * g;
     float b = (p[2] / 255.0f); b = b * b;
@@ -200,7 +200,7 @@ __device__ bool sphere_hit(const GpuSphere &s, const GpuRay &ray, float t_min, f
   rec.u = phi / (2.0f * GPU_PI);
   rec.v = theta / GPU_PI;
 
-  // ---- Compute TBN from spherical parameterization ----
+  // Compute TBN from spherical parameterization
   float sin_phi   = sinf(rec.u * 2.0f * GPU_PI - GPU_PI);
   float cos_phi   = cosf(rec.u * 2.0f * GPU_PI - GPU_PI);
   float sin_theta = sinf(rec.v * GPU_PI);
@@ -749,10 +749,7 @@ __global__ void init_rng_kernel(curandState *states, int width, int height) {
 // Batch render kernel — accumulates batch_size samples into accum buffer.
 // Called repeatedly from the host loop; each launch is short enough to avoid
 // TDR kills and lets us download progressive results between batches.
-__global__ void render_kernel(float *accum, curandState *rng_states,
-                              int width, int height,
-                              int batch_size, int max_depth,
-                              GpuCamera camera, GpuScene scene) {
+__global__ void render_kernel(float *accum, curandState *rng_states, int width, int height, int batch_size, int max_depth, GpuCamera camera, GpuScene scene) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height) return;
@@ -782,8 +779,7 @@ __global__ void render_kernel(float *accum, curandState *rng_states,
 }
 
 // Divide accumulated radiance by sample count to produce final mean image
-__global__ void normalize_kernel(float *fb, const float *accum,
-                                 int width, int height, int total_samples) {
+__global__ void normalize_kernel(float *fb, const float *accum, int width, int height, int total_samples) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height) return;
@@ -869,12 +865,9 @@ void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, con
   printf("RNG states initialized\n");
 
   for (int b = 0; b < num_batches; ++b) {
-    int spp_this_batch = (b < num_batches - 1) ? BATCH_SIZE
-                                                : total_spp - b * BATCH_SIZE;
+    int spp_this_batch = (b < num_batches - 1) ? BATCH_SIZE : total_spp - b * BATCH_SIZE;
 
-    render_kernel<<<grid, block>>>(d_accum, d_rng, W, H,
-                                   spp_this_batch, params.max_depth,
-                                   params.camera, d_scene);
+    render_kernel<<<grid, block>>>(d_accum, d_rng, W, H, spp_this_batch, params.max_depth, params.camera, d_scene);
 
     CUDA_CHECK(cudaGetLastError());
 
@@ -884,12 +877,11 @@ void cuda_render(const CudaRenderParams &params, const GpuScene &host_scene, con
     // Sync + progress every few batches (every ~128 samples)
     {      
       CUDA_CHECK(cudaDeviceSynchronize());
-      int done = (b + 1 == num_batches) ? total_spp
-                                        : (b + 1) * BATCH_SIZE;
+      int done = (b + 1 == num_batches) ? total_spp : (b + 1) * BATCH_SIZE;
       printf("Progress: %d / %d samples (%.1f%%)\n",
              done, total_spp, 100.0f * done / total_spp);
 
-      // ---- Optional: save progressive image here ----
+      // saving image progressively (OPTIONAL - remove/edit as needed :) )
       if (!output_path.empty() && (done % 8 == 0 || b == num_batches - 1)) {
         normalize_kernel<<<grid, block>>>(d_fb, d_accum, W, H, done);
         cudaDeviceSynchronize();

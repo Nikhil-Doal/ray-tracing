@@ -1,11 +1,11 @@
-# Physically-Based Ray Tracer
+# Physically Based Path Tracer
 
-A high-performance, physically-based path tracer written in C++ with CUDA GPU acceleration. The renderer supports production-scale triangle meshes, HDR environment lighting, physically-based materials, and progressive rendering — targeting offline image synthesis with accurate global illumination.
+A high-performance, physically-based path tracer written in C++ with CUDA GPU acceleration. The renderer supports large scale triangle meshes, HDR environment lighting, physically-based materials, and progressive rendering. Benchmarked results can be found [here](https://github.com/Nikhil-Doal/ray-tracing?tab=readme-ov-file#benchmarking-and-performance).
 
-The system is architected as two parallel render paths — a multithreaded CPU backend and a CUDA GPU backend — sharing a common scene description, material model, and BVH acceleration structure. Both paths produce equivalent output, enabling validation and flexible deployment across hardware configurations.
+The system consists of two separate paths: a multithreaded CPU backend and a CUDA GPU backend, both sharing a common scene description, material model, and BVH acceleration structure. Both paths produce equivalent output, allowing for flexibility across hardware configurations.
 
 ![Sponza Atrium](assets/renders/sponza4k.png)
-*Sponza Atrium — 66k triangles, HDR environment lighting, textured Lambertian and specular materials*
+*Sponza Atrium — ~65k triangles, HDR environment lighting, textured Lambertian and specular materials*
 
 ![San Miguel](assets/renders/san_miguel2k.png)
 *San Miguel — ~10 million triangles, full global illumination*
@@ -16,15 +16,15 @@ The system is architected as two parallel render paths — a multithreaded CPU b
 
 ### Core Rendering
 
-The renderer implements unbiased Monte Carlo path tracing with recursive light transport. At each surface interaction, the integrator evaluates direct illumination via Next Event Estimation (NEE) and indirect illumination via BSDF importance sampling, combining both estimators through Multiple Importance Sampling (MIS) using the power heuristic. This eliminates variance spikes that arise when either the light or BSDF sampling strategy alone is poorly suited to the local geometry.
+The renderer implements unbiased **Monte Carlo** path tracing with recursive light calculations. At each surface interaction, the integrator evaluates direct illumination via Next Event Estimation (NEE) and indirect illumination via BSDF importance sampling, combining both estimators through Multiple Importance Sampling (MIS) using the power heuristic. This eliminates variance spikes that arise when either the light or BSDF sampling strategy alone is poorly suited to the local geometry.
 
-Russian roulette termination provides unbiased path length reduction: after a configurable depth threshold, paths are stochastically terminated with probability proportional to throughput magnitude, and surviving paths are reweighted by the inverse survival probability. Combined with a hard throughput clamp, this controls firefly artifacts from degenerate PDF ratios without introducing systematic bias.
+A Russian roulette termination provides unbiased path length reduction: after a configurable depth threshold, paths are stochastically terminated with probability proportional to throughput magnitude, and surviving paths are reweighted by the inverse survival probability. Combined with a hard throughput clamp, this controls firefly artifacts from degenerate PDF ratios without introducing systematic bias.
 
-Anti-aliasing is achieved through stochastic sub-pixel sampling — each sample jitters the ray origin within the pixel footprint, and the final pixel value is the mean of all samples. Progressive rendering accumulates samples over time, enabling early preview and arbitrarily high sample counts.
+Anti-aliasing is achieved through stochastic sub-pixel sampling so that each sample jitters the ray origin within the pixel footprint, and the final pixel value is the mean of all samples. Progressive rendering accumulates samples over time, enabling early preview and arbitrarily high sample counts.
 
 ### Acceleration and Performance
 
-Scene geometry is organized into a Bounding Volume Hierarchy (BVH) constructed using the Surface Area Heuristic (SAH). The BVH reduces ray-scene intersection from O(n) to expected O(log n), which is essential for scenes with millions of primitives. The GPU path uses an iterative, stack-based BVH traversal with ordered child traversal (near-child-first) to minimize redundant intersection tests.
+Scene geometry is organized into a Bounding Volume Hierarchy (BVH) constructed using the Surface Area Heuristic (SAH). The BVH reduces ray-scene intersection from $O(n)$ to expected $O(log(n))$, which is essential for scenes with millions of primitives. The GPU path uses an iterative, stack-based BVH traversal with ordered child traversal (near-child-first) to minimize redundant intersection tests.
 
 On the CPU side, rendering is parallelized via a tile-based work-stealing architecture: the image is subdivided into 64x64 pixel tiles, and a pool of worker threads atomically claims tiles from a shared queue. This provides near-linear scaling across cores with minimal synchronization overhead.
 
@@ -38,7 +38,7 @@ The material system supports five physically-motivated surface types:
 
 **Lambertian diffuse** surfaces scatter incoming light according to a cosine-weighted hemisphere distribution. The scattering PDF is analytically available, enabling proper MIS weighting against light sampling.
 
-**Metal / specular** surfaces reflect rays about the surface normal with an optional fuzz parameter that perturbs the reflected direction, simulating roughened metallic surfaces.
+**Metal / specular** surfaces reflect rays about the surface normal with an optional fuzz parameter that perturbs the reflected direction, simulating roughened metallic surfaces or a mirror if set to 0.
 
 **Dielectric / glass** surfaces implement Snell's law refraction with Schlick's approximation for the Fresnel reflectance term. Total internal reflection is handled correctly. The material is flagged as transmissive so that NEE shadow rays do not incorrectly occlude behind glass.
 
@@ -51,7 +51,7 @@ The lighting system supports directional lights (treated as delta distributions 
 HDR environment maps provide image-based lighting via equirectangular projection. The sky texture is sampled for any ray that escapes the scene, providing realistic ambient illumination from captured real-world environments.
 
 ![Materials and HDR Sky](assets/renders/spheres_fov0.png)
-*Random sphere scene — Lambertian, metal, dielectric, and emissive materials under HDR environment lighting*
+*Random sphere scene using Lambertian, metal, dielectric, and emissive materials under HDR environment lighting*
 
 ### Texture and Normal Mapping
 
@@ -60,11 +60,11 @@ The renderer supports texture-mapped albedo and emission via OBJ/MTL material de
 Tangent-space normal mapping and grayscale bump mapping are both supported. The TBN frame is computed from UV gradients using Gram-Schmidt orthogonalization, with fallback to an arbitrary tangent when UV derivatives are degenerate. Bump maps use finite-difference gradient estimation to perturb the shading normal. Both techniques preserve the geometric normal for self-intersection offset, preventing shadow acne on mapped surfaces.
 
 ![Normal and Bump Mapping](assets/renders/normal_map.png)
-*Normal mapping and bump mapping demonstration*
+*Normal mapping and bump mapping demonstration (Normal textures in the front, normal-maps in the back)*
 
 ### Scene and Asset Support
 
-Scene geometry is loaded from Wavefront OBJ files with full MTL material support, including diffuse textures (`map_Kd`), emission textures (`map_Ke`), normal maps, and bump maps. The OBJ loader (via tinyobjloader) handles triangulation, per-vertex normals, and texture coordinates. Scenes such as San Miguel (~10 million triangles) and Sponza (~66k triangles) load and render without modification.
+Scene geometry is loaded from Wavefront OBJ files with full MTL material support, including diffuse textures (`map_Kd`), emission textures (`map_Ke`), normal maps, and bump maps. The OBJ loader (via *tinyobjloader*) handles triangulation, per-vertex normals, and texture coordinates. Scenes such as San Miguel (~10 million triangles) and Sponza (~66k triangles) load and render without modification.
 
 A scene registry system allows declarative scene definitions: each scene is a standalone `.cpp` file that populates a `SceneDesc` struct with geometry, camera parameters, lights, and HDR sky path. Registration is automatic via a macro (`REGISTER_SCENE`), and both CPU and CUDA entry points discover scenes from the shared registry.
 
@@ -76,7 +76,7 @@ A scene registry system allows declarative scene definitions: each scene is a st
 
 1. **Scene Construction** — The selected scene function populates a `SceneDesc` with geometry (as a `HittableList`), camera parameters, explicit lights, and an optional HDR sky path.
 
-2. **BVH Build** — The primitive list is partitioned recursively using the SAH cost model. On the GPU path, the CPU-side BVH tree is flattened into a contiguous array of `GpuBVHNode` structs with integer child indices.
+2. **BVH Build** — The primitive list is partitioned recursively using the SAH model. On the GPU path, the CPU-side BVH tree is flattened into a contiguous array of `GpuBVHNode` structs with integer child indices.
 
 3. **Ray Generation** — For each pixel, rays are generated with stochastic sub-pixel jitter. The camera model supports configurable field of view, aperture (depth of field), and focus distance.
 
@@ -92,17 +92,45 @@ The CPU path uses double-precision arithmetic, virtual dispatch for materials an
 
 ---
 
-## Performance
+## Benchmarking and Performance
 
-| Scene | Triangles | Resolution | Samples | CPU Time | GPU Time |
-|---|---|---|---|---|---|
-| Random Spheres | ~500 | 1080x720 | 200 spp | ~minutes | ~seconds |
-| Sponza | ~66k | 1920x1080 | 200 spp | ~hours | ~minutes |
-| San Miguel | ~10M | 1080x720 | 200 spp | impractical | ~minutes |
+```bash
+# run the full benchmark suite
+./benchmark.exe <scene_name>
+```
 
-*Times are approximate and depend heavily on hardware, max depth, and lighting complexity. GPU timings measured on an RTX 3080 (sm_86).*
+Built-in scenes: `test` (Stanford Bunny, ~5K tris), `sponza` (Crytek Sponza, ~66K tris). All backends produce identical output for the same scene, resolution, sample count, and bounce depth.
 
-The BVH acceleration structure is critical for large scenes. On the Stanford Bunny (~70k triangles), BVH traversal provides roughly two orders of magnitude speedup over brute-force intersection. The CUDA backend adds an additional order of magnitude over multithreaded CPU rendering for equivalent sample counts.
+| # | Backend | Description |
+|---|---------|-------------|
+| 1 | **Raw CPU** | No BVH, single-threaded — brute-force baseline |
+| 2 | **BVH CPU** | SAH-built BVH, single-threaded |
+| 3 | **BVH MT** | BVH + tiled multithreading across all available cores |
+| 4 | **CUDA GPU** | Scene flattened to device memory, BVH rebuilt on GPU |
+
+### Benchmark Results
+
+#### Test Scene — Stanford Bunny
+
+> 1080 × 720 · 100 spp · depth 16 · 4,970 triangles · 20 CPU threads
+
+| Backend | Render Time | Throughput (Mpx·spp/s) | Speedup |
+|---------|------------|------------------------|---------|
+| Raw CPU (1 thread) | 2 h 45 m | 0.008 | 1× (base) |
+| BVH CPU (1 thread) | 2 m 58 s | 0.436 | 56× |
+| BVH MT (20 threads) | 26.0 s | 2.986 | 380× |
+| **CUDA GPU** | **0.87 s** | **89.2** | **11,360×** |
+
+#### Sponza
+
+> 1080 × 720 · 200 spp · depth 16 · 66,450 triangles · 20 CPU threads
+
+| Backend | Render Time | Throughput (Mpx·spp/s) | Speedup |
+|---------|------------|------------------------|---------|
+| Raw CPU (1 thread) | 48 h 35 m | 0.002 | 1× (base) |
+| BVH CPU (1 thread) | 7 h 32 m | 0.006 | 3× |
+| BVH MT (20 threads) | 55 m 3 s | 0.047 | 24× |
+| **CUDA GPU** | **2 m 21 s** | **1.100** | **550×** |
 
 ---
 
@@ -133,11 +161,11 @@ On Windows with Visual Studio:
 
 ```powershell
 mkdir build; cd build
-cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_CUDA_ARCHITECTURES=86
+cmake .. -G "Visual Studio 18 2026" -A x64 -DCMAKE_CUDA_ARCHITECTURES=86
 cmake --build . --config Release
 ```
 
-If CUDA is not available, only the CPU target (`render`) is built. The CUDA target (`render_cuda`) is conditionally enabled when a CUDA compiler is detected.
+If CUDA is not available, only the CPU target (`render`) is built. The CUDA target (`render_cuda`) is conditionally enabled when a CUDA compiler is detected. (ensure nvcc is installed)
 
 ---
 
@@ -192,26 +220,26 @@ Rendering parameters are set per-scene in the `SceneDesc` struct:
 
 ## Project Structure
 
-```
-├── core/                   # Vec3, Ray, Camera, Hittable interface
-├── objects/                # Sphere, Triangle, Plane, BVH, OBJ loader
-├── materials/              # Lambertian, Metal, Dielectric, Glossy, Emissive
-├── textures/               # Image textures, HDR textures, solid colors
-├── lights/                 # Directional, point, and sphere area lights
+```bash
+├── core/                       # Vec3, Ray, Camera, Hittable interface
+├── objects/                    # Sphere, Triangle, Plane, BVH, OBJ loader
+├── materials/                  # Lambertian, Metal, Dielectric, Glossy, Emissive
+├── textures/                   # Image textures, HDR textures, solid colors
+├── lights/                     # Directional, point, and sphere area lights
 ├── renderer/
-│   ├── renderer.h          # CPU integrator (ray_color, NEE, MIS, tiling)
+│   ├── renderer.h              # CPU integrator (ray_color, NEE, MIS, tiling)
 │   └── cuda/
-│       ├── cuda_scene.cuh  # GPU data structures (GpuVec3, GpuMaterial, etc.)
-│       ├── cuda_bvh.cuh    # CPU-to-GPU scene flattening and BVH export
+│       ├── cuda_scene.cuh      # GPU data structures (GpuVec3, GpuMaterial, etc.)
+│       ├── cuda_bvh.cuh        # CPU-to-GPU scene flattening and BVH export
 │       ├── cuda_renderer.cu    # GPU integrator kernel
 │       └── cuda_renderer.cuh   # CUDA render interface
-├── scenes/                 # Scene definitions and registry
-├── utils/                  # Image writer (PNG output with tonemapping)
-├── external/               # Vendored: stb_image, stb_image_write, tinyobjloader
-├── assets/                 # Models, textures, HDR environment maps
+├── scenes/                     # Scene definitions and registry
+├── utils/                      # Image writer (PNG output with tonemapping)
+├── external/                   # Vendored: stb_image, stb_image_write, tinyobjloader
+├── assets/                     # Models, textures, HDR environment maps
 ├── src/
-│   ├── main.cpp            # CPU entry point
-│   └── main_cuda.cu        # CUDA entry point
+│   ├── main.cpp                # CPU entry point
+│   └── main_cuda.cu            # CUDA entry point
 └── CMakeLists.txt
 ```
 
@@ -235,22 +263,6 @@ Add the file to `SHARED_SOURCES` in `CMakeLists.txt`. Both CPU and CUDA entry po
 
 ---
 
-## Technical Depth
-
-This renderer goes well beyond introductory ray tracing projects in several dimensions:
-
-**GPU acceleration with architectural parity.** The CUDA backend is not a trivial port — it reimplements the full integrator (NEE, MIS, Russian roulette, normal mapping, BVH traversal) in a GPU-native form with flat data structures, iterative traversal, and per-pixel RNG state. The CPU and GPU paths share a common scene description but diverge at the execution model to exploit hardware characteristics of each target.
-
-**Production-scale scene handling.** Rendering San Miguel (10M triangles) requires a memory-efficient flat scene representation, a robust SAH-based BVH, and careful numerical handling. The renderer handles this without simplification or scene reduction.
-
-**Correct light transport.** The integrator implements full MIS between NEE and BSDF sampling with proper PDF accounting for delta lights, area lights, and emissive geometry. Specular paths are flagged to bypass MIS entirely (pdf = -1 sentinel), preventing incorrect weighting on mirror or glass bounces. Emissive hits from BSDF-sampled rays are weighted against the NEE estimator to eliminate double-counting.
-
-**Numerical robustness.** Self-intersection is mitigated by offsetting shadow and secondary ray origins along the geometric normal (not the shading normal, which may be perturbed by normal mapping). NaN and infinity samples are discarded before accumulation. Throughput is hard-clamped to prevent runaway energy from degenerate sampling configurations.
-
-**System architecture.** The scene registry, modular material system, and shared `SceneDesc` layer allow new scenes, materials, and light types to be added without modifying the render loop or GPU kernel. The build system conditionally enables CUDA when available, maintaining a functional CPU-only fallback.
-
----
-
 ## Future Improvements
 
 - Importance-sampled HDR environment map (CDF-based light sampling)
@@ -260,8 +272,9 @@ This renderer goes well beyond introductory ray tracing projects in several dime
 - Volumetric scattering and participating media
 - Motion blur and animated geometry
 - Spectral rendering
-- OptiX or hardware RT core acceleration
-- Interactive preview with progressive refinement
+- **Vulkan compute backend**: replace CUDA with Vulkan ray tracing pipelines for vendor-agnostic GPU acceleration and access to hardware RT cores on both NVIDIA and AMD
+- **OptiX integration**: leverage NVIDIA's OptiX API for hardware-accelerated BVH traversal via RT cores, replacing the current software BVH with OptiX's built-in acceleration structures for significant performance gains on RTX hardware
+- Interactive preview with progressive refinement (real-time viewport via Vulkan swapchain)
 
 ---
 
@@ -279,9 +292,3 @@ Veach, E. (1997). *Robust Monte Carlo Methods for Light Transport Simulation*. P
 
 Models downloaded from Morgan McGuire's Computer Graphics Archive:
 https://casual-effects.com/data
-
----
-
-## License
-
-This project is provided for educational and portfolio purposes.
