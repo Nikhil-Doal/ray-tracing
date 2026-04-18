@@ -2,6 +2,7 @@
 #include "cuda_scene.cuh"
 #include <vector>
 #include <unordered_map>
+#include <cstring>
 #include <algorithm>
 #include "../../core/hittable.h"
 #include "../../objects/bvh_node.h"

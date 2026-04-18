@@ -1,5 +1,6 @@
 #pragma once
 #include <cuda_runtime.h>
+#include <cstdint>
 
 // redefine all core features and functions for cuda 
 // Vec3 - we need float not double due to limited double cores on gpus
