@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+# Cancel in-progress runs when a new commit is pushed to the same PR/branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────
+  # CPU build on Linux — tests GCC and Clang
+  # ────────────────────────────────────────────────────────────────
+  cpu-linux:
+    name: CPU Linux (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build ccache
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            sudo apt-get install -y clang
+          fi
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-cpu-linux-${{ matrix.compiler }}-${{ github.sha }}
+          restore-keys: |
+            ccache-cpu-linux-${{ matrix.compiler }}-
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
+          CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build CPU target
+        run: cmake --build build --target render -j
+
+      - name: Verify binary
+        run: test -f build/render
+
+      - name: ccache stats
+        if: always()
+        run: ccache -s || true
+
+  # ────────────────────────────────────────────────────────────────
+  # CPU build on Windows (MSVC)
+  # ────────────────────────────────────────────────────────────────
+  cpu-windows:
+    name: CPU Windows (MSVC)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -A x64 -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build CPU target
+        run: cmake --build build --config Release --target render -j
+
+      - name: Verify binary
+        shell: pwsh
+        run: |
+          if (-not (Test-Path build/Release/render.exe)) {
+            Write-Error "render.exe not produced"
+            exit 1
+          }
+
+  # ────────────────────────────────────────────────────────────────
+  # Full build including CUDA on Linux (build-only — runners have no GPU)
+  # ────────────────────────────────────────────────────────────────
+  cuda-linux:
+    name: CUDA Linux (build-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build ccache
+
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: '12.5.0'
+          method: network
+          sub-packages: '["nvcc", "cudart-dev", "curand-dev"]'
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-cuda-linux-${{ github.sha }}
+          restore-keys: |
+            ccache-cuda-linux-
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CUDA_ARCHITECTURES=86 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache
+
+      - name: Build all targets
+        run: cmake --build build -j
+
+      - name: Verify binaries
+        run: |
+          test -f build/render      || (echo "render missing"      && exit 1)
+          test -f build/render_cuda || (echo "render_cuda missing" && exit 1)
+          test -f build/benchmark   || (echo "benchmark missing"   && exit 1)
+
+      - name: ccache stats
+        if: always()
+        run: ccache -s || true
