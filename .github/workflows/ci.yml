@@ -107,7 +107,11 @@ jobs:
         with:
           cuda: '12.5.0'
           method: network
-          sub-packages: '["nvcc", "cudart-dev", "curand-dev"]'
+          # nvcc + cudart use the cuda-<pkg>-<ver> naming (auto-prefixed by the action).
+          # cuRAND ships as libcurand-dev-<ver> — pass that through unmodified via
+          # non-cuda-sub-packages so the action doesn't mangle the name.
+          sub-packages: '["nvcc", "cudart-dev"]'
+          non-cuda-sub-packages: '["libcurand-dev"]'
 
       - name: Restore ccache
         uses: actions/cache@v4
